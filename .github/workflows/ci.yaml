@@ -1,0 +1,109 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/brhelwig-dev/bambuspa
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # rustup installs the toolchain rust-toolchain.toml names on first use.
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: .github/scripts/check-rust-version.sh
+      - run: cargo test --locked
+
+  dist:
+    # The same script release.yaml runs, so a platform that stops building fails
+    # here rather than at release time. Each platform builds natively on a
+    # runner of its own OS and architecture, and is then run there.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux/amd64, runner: ubuntu-latest }
+          - { platform: linux/arm64, runner: ubuntu-24.04-arm }
+          - { platform: windows/amd64, runner: windows-latest }
+          - { platform: windows/arm64, runner: windows-11-arm }
+          - { platform: darwin/amd64, runner: macos-latest }
+          - { platform: darwin/arm64, runner: macos-latest }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      # The arm64 Windows image may lack rustup, and ring builds its code for
+      # that target with clang.
+      - if: matrix.platform == 'windows/arm64'
+        run: |
+          if ! command -v rustup; then
+            curl -sSf -o "$RUNNER_TEMP/rustup-init.exe" https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe
+            "$RUNNER_TEMP/rustup-init.exe" -y --default-toolchain none
+            echo "$USERPROFILE\.cargo\bin" >> "$GITHUB_PATH"
+          fi
+          if ! command -v clang; then
+            choco install -y llvm
+            echo "C:\Program Files\LLVM\bin" >> "$GITHUB_PATH"
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: .github/scripts/build-dist.sh ci "$RUNNER_TEMP/dist" ${{ matrix.platform }}
+      - run: .github/scripts/check-dist.sh ${{ matrix.platform }}
+
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('.github/scripts/check-js.sh') }}
+      - run: .github/scripts/check-js.sh
+
+  image:
+    needs: test
+    # Native arm64, so the image builds without emulation.
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4.6.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Built on every pull request so a broken Dockerfile fails there rather
+      # than after it reaches main; only a push to main publishes the result.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/brhelwig-dev/bambuspa

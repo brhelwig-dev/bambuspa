@@ -1,0 +1,7 @@
+# The compiler every build uses: local, CI, release and the container image.
+# .github/scripts/check-rust-version.sh fails CI if the Dockerfile's rust image
+# names a different version.
+[toolchain]
+channel = "1.98"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

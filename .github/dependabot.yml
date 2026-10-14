@@ -1,0 +1,31 @@
+version: 2
+
+# Nothing is adopted until it has been public for two weeks. A compromised
+# release is usually caught and pulled within days, and waiting costs nothing
+# here — none of these need to be the version published this morning. Security
+# updates ignore the cooldown, so a real advisory still arrives at once.
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: npm
+    directory: /.github/screenshots
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14

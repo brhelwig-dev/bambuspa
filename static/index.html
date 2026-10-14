@@ -1,0 +1,1954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#111418">
+<link rel="manifest" href="/manifest.webmanifest">
+<script>
+  // Before anything is drawn: a stored choice wins, otherwise follow the system.
+  try {
+    const t = localStorage.getItem("theme");
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  } catch {}
+</script>
+<title>BambuSpa</title>
+<style>
+  /* Every colour is named once, per theme. The blocks below only choose which
+     set is in force, so the two palettes cannot drift apart. */
+  :root {
+    --d-bg: #111418;
+    --d-card: #1b2027;
+    --d-inset: #141922;
+    --d-well: #0d0f12;
+    --d-control: #2a313b;
+    --d-text: #e8eaed;
+    --d-muted: #9aa0a6;
+    --d-accent: #c98a2b;
+    --d-accent-solid: #7a4a12;
+    --d-ok: #7bd88f;
+    --d-bad: #ff6e6e;
+    --d-danger: #6e2222;
+    --d-danger-armed: #b02a2a;
+    --d-alert-bg: #4a1414;
+    --d-alert-text: #ffb3b3;
+    --d-live: #ff3b30;
+    --d-hairline: #333;
+    --l-bg: #f2f3f5;
+    --l-card: #ffffff;
+    --l-inset: #eceef1;
+    --l-well: #dfe2e6;
+    --l-control: #e4e7eb;
+    --l-text: #1b2027;
+    --l-muted: #5f6672;
+    --l-accent: #a76a12;
+    --l-accent-solid: #a76a12;
+    --l-ok: #1f7a3d;
+    --l-bad: #b3261e;
+    --l-danger: #d9c2c0;
+    --l-danger-armed: #b3261e;
+    --l-alert-bg: #fbe3e1;
+    --l-alert-text: #7f1d1a;
+    --l-live: #d92d20;
+    --l-hairline: #c6cad1;
+    color-scheme: dark;
+    --bg: var(--d-bg);
+    --card: var(--d-card);
+    --inset: var(--d-inset);
+    --well: var(--d-well);
+    --control: var(--d-control);
+    --text: var(--d-text);
+    --muted: var(--d-muted);
+    --accent: var(--d-accent);
+    --accent-solid: var(--d-accent-solid);
+    --ok: var(--d-ok);
+    --bad: var(--d-bad);
+    --danger: var(--d-danger);
+    --danger-armed: var(--d-danger-armed);
+    --alert-bg: var(--d-alert-bg);
+    --alert-text: var(--d-alert-text);
+    --live: var(--d-live);
+    --hairline: var(--d-hairline);
+  }
+  /* No stored choice: follow the system. */
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+      color-scheme: light;
+      --bg: var(--l-bg);
+      --card: var(--l-card);
+      --inset: var(--l-inset);
+      --well: var(--l-well);
+      --control: var(--l-control);
+      --text: var(--l-text);
+      --muted: var(--l-muted);
+      --accent: var(--l-accent);
+      --accent-solid: var(--l-accent-solid);
+      --ok: var(--l-ok);
+      --bad: var(--l-bad);
+      --danger: var(--l-danger);
+      --danger-armed: var(--l-danger-armed);
+      --alert-bg: var(--l-alert-bg);
+      --alert-text: var(--l-alert-text);
+      --live: var(--l-live);
+      --hairline: var(--l-hairline);
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: var(--l-bg);
+    --card: var(--l-card);
+    --inset: var(--l-inset);
+    --well: var(--l-well);
+    --control: var(--l-control);
+    --text: var(--l-text);
+    --muted: var(--l-muted);
+    --accent: var(--l-accent);
+    --accent-solid: var(--l-accent-solid);
+    --ok: var(--l-ok);
+    --bad: var(--l-bad);
+    --danger: var(--l-danger);
+    --danger-armed: var(--l-danger-armed);
+    --alert-bg: var(--l-alert-bg);
+    --alert-text: var(--l-alert-text);
+    --live: var(--l-live);
+    --hairline: var(--l-hairline);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: var(--d-bg);
+    --card: var(--d-card);
+    --inset: var(--d-inset);
+    --well: var(--d-well);
+    --control: var(--d-control);
+    --text: var(--d-text);
+    --muted: var(--d-muted);
+    --accent: var(--d-accent);
+    --accent-solid: var(--d-accent-solid);
+    --ok: var(--d-ok);
+    --bad: var(--d-bad);
+    --danger: var(--d-danger);
+    --danger-armed: var(--d-danger-armed);
+    --alert-bg: var(--d-alert-bg);
+    --alert-text: var(--d-alert-text);
+    --live: var(--d-live);
+    --hairline: var(--d-hairline);
+  }
+  body {
+    margin: 0 auto;
+    font-family: -apple-system, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: max(env(safe-area-inset-top), 12px) 16px 24px;
+    max-width: 480px;
+  }
+  .card { background: var(--card); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.95rem; }
+  .row span:first-child { color: var(--muted); }
+  #conn { text-align: right; max-width: 70%; }
+  #printerMsg.bad { color: var(--bad); }
+  /* The printer switcher: one chip per printer, shown with two or more. */
+  #switcher { display: flex; gap: 8px; overflow-x: auto; margin: -4px 0 14px; padding-bottom: 2px; scrollbar-width: none; }
+  #switcher::-webkit-scrollbar { display: none; }
+  #switcher button { flex: none; display: flex; align-items: center; gap: 7px; background: var(--card); color: var(--text); border: 1px solid transparent; border-radius: 999px; padding: 7px 14px; font-size: 0.9rem; width: auto; margin: 0; font-weight: 500; }
+  #switcher button[aria-pressed="true"] { border-color: var(--accent); background: var(--inset); }
+  #switcher .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  #switcher .dot.ok { background: var(--ok); }
+  #switcher .dot.bad { background: var(--bad); }
+  #switcher .pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .printeritem { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--hairline); }
+  .printeritem .who { flex: 1; min-width: 0; }
+  .printeritem .who div:first-child { font-weight: 600; }
+  .printeritem .who div + div { color: var(--muted); font-size: 0.8rem; overflow-wrap: anywhere; }
+  .printeritem button { width: auto; margin: 0; padding: 6px 12px; font-size: 0.85rem; }
+  .formbtns { display: flex; gap: 8px; }
+  .formbtns button { flex: 1; }
+  .ok { color: var(--ok); }
+  .bad { color: var(--bad); }
+  button {
+    border: 0; border-radius: 10px; padding: 16px 8px;
+    font-size: 1rem; font-weight: 600;
+    background: var(--control); color: var(--text);
+  }
+  button:disabled { opacity: 0.4; }
+  button.danger { background: var(--danger); }
+  button.danger.armed { background: var(--danger-armed); }
+  #log { min-height: 1.2em; color: var(--muted); font-size: 0.85rem; margin-top: 12px; }
+  #camImg { width: 100%; border-radius: 12px; display: block; background: var(--well); min-height: 120px; }
+  .ams-slot { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 0.95rem; }
+  .ams-swatch { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; border: 1px solid var(--hairline); }
+  .card h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; margin: 0 0 10px; }
+  input[type=range] { width: 100%; margin: 6px 0 2px; accent-color: var(--accent); }
+  input[type=range]:disabled { opacity: 0.4; }
+  .iconrow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+  .iconrow.cols3 { grid-template-columns: repeat(3, 1fr); }
+  .iconbtn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 13px 4px; }
+  .iconbtn svg { width: 26px; height: 26px; display: block; }
+  .iconbtn .cap { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em; }
+  .iconbtn.on { color: var(--accent); }
+  .ams-editor { background: var(--inset); border-radius: 10px; padding: 8px 12px; margin: 2px 0 10px; }
+  .notifywhat { color: var(--muted); font-size: 0.8rem; margin: 2px 0 10px; }
+  .topbar { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
+  .screentitle { font-size: 0.95rem; font-weight: 600; flex: 1; }
+  .topicon { background: none; padding: 6px; color: var(--muted); display: inline-flex; }
+  .topicon svg { width: 22px; height: 22px; display: block; }
+  /* One grid, so every box lands in the same column whatever the unit beside
+     it is called. */
+  .setrow { display: grid; grid-template-columns: 1fr 72px 5.5em; align-items: center; gap: 10px; padding: 7px 0; font-size: 0.9rem; }
+  .setrow label { color: var(--muted); }
+  .setrow .unit { color: var(--muted); }
+  .setrow select { grid-column: 2 / -1; width: 100%; }
+  .kindrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; font-size: 0.9rem; }
+  .kindrow label { color: var(--text); }
+  .kindrow input { width: 20px; height: 20px; accent-color: var(--accent); }
+  .dashrow { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.9rem; }
+  .dashrow .move { background: var(--control); padding: 6px 10px; border-radius: 6px; font-size: 0.9rem; line-height: 1; }
+  .dashrow input { width: 20px; height: 20px; accent-color: var(--accent); }
+  [data-hidden="yes"] { display: none !important; }
+  .event { background: var(--card); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.85rem; }
+  .event .head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .event .what { font-weight: 600; overflow-wrap: anywhere; }
+  .event .when { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+  .event .ack { font-size: 0.75rem; margin-top: 3px; }
+  .event .ack.yes { color: var(--ok); }
+  .event .ack.no { color: var(--accent); }
+  .event .ack.bad { color: var(--bad); }
+  .event pre { margin: 6px 0 0; padding: 8px; background: var(--inset); border-radius: 6px; color: var(--muted);
+    font-size: 0.7rem; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; }
+  .event summary { color: var(--muted); font-size: 0.75rem; cursor: pointer; margin-top: 4px; }
+  .setrow input { background: var(--control); border: 0; border-radius: 6px; color: var(--text); padding: 6px 8px; font-size: 0.9rem; width: 100%; text-align: right; }
+  .setrow input[type=text], .setrow input[type=password] { grid-column: 2 / -1; }
+  #printerSave { width: 100%; margin-top: 10px; padding: 12px; font-size: 0.95rem; background: var(--accent-solid); }
+  #settingsSave { width: 100%; margin-top: 10px; padding: 12px; font-size: 0.95rem; }
+  #settingsSave:not(:disabled) { background: var(--accent-solid); }
+  .notifybtns { display: flex; gap: 10px; }
+  .notifybtns button { flex: 1; }
+  .ams-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 0.85rem; }
+  .ams-edit-row label { color: var(--muted); }
+  .ams-editor input[type=text], .ams-editor input[type=number] { background: var(--control); border: 0; border-radius: 6px; color: var(--text); padding: 6px 8px; font-size: 0.85rem; }
+  .ams-editor input.temp { width: 60px; }
+  .ams-editor input[type=color] { width: 46px; height: 30px; background: none; border: 0; padding: 0; }
+  .ams-editor .ams-save { width: 100%; margin-top: 6px; padding: 10px; font-size: 0.9rem; }
+  select { border: 0; border-radius: 8px; padding: 8px; font-size: 0.9rem; background: var(--control); color: var(--text); }
+  .camctls { display: flex; align-items: center; gap: 8px; }
+  .camctl { padding: 8px 12px; display: inline-flex; }
+  .camctl svg { width: 18px; height: 18px; display: block; }
+  .cam-job-time { display: block; color: var(--muted); font-size: 0.75rem; }
+  /* Live is a mode, not a transport control, so it sits on the image the way
+     every camera UI marks a live feed — not beside play and speed, which only
+     ever act on recorded footage. */
+  .cam-frame { position: relative; }
+  .cam-live {
+    position: absolute; top: 10px; right: 10px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px 5px 8px; border-radius: 999px;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+    background: rgba(0, 0, 0, 0.55); color: var(--muted);
+  }
+  .cam-live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .cam-live.on { color: #fff; }
+  .cam-live.on .dot { background: var(--live); }
+</style>
+</head>
+<body>
+<div id="mainScreen">
+<div class="topbar">
+  <span class="screentitle">BambuSpa</span>
+  <!-- A pulse, not a list: three stacked lines read as a menu and this opens a
+       log of what the printer has been doing. -->
+  <button class="topicon" id="eventsBtn" aria-label="Events">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+  </button>
+  <button class="topicon" id="settingsBtn" aria-label="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9.5a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9.5a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</div>
+<div id="switcher" role="group" aria-label="Printer" style="display:none"></div>
+<div class="card" id="jobCard">
+  <h2>Job status</h2>
+  <div class="row" id="jobEmpty" style="color:var(--muted)">No active print</div>
+  <div class="row" id="progressRow" style="display:none"><span>Progress</span><span id="progress"></span></div>
+  <div class="row" id="jobRow" style="display:none"><span>Job</span><span id="jobName"></span></div>
+  <div class="row" id="layerRow" style="display:none"><span>Layer</span><span id="layer"></span></div>
+  <div class="row" id="timeRow" style="display:none"><span>Time remaining</span><span id="timeRemaining"></span></div>
+</div>
+<div class="card" id="machineCard">
+  <h2>Machine status</h2>
+  <div class="row"><span>Connection</span><span id="conn">…</span></div>
+  <div class="row"><span>State</span><span id="state">…</span></div>
+  <div class="row"><span>Bed</span><span id="bed">…</span></div>
+  <div class="row"><span>Nozzle</span><span id="nozzle">…</span></div>
+  <div class="row"><span>Fans (cool/aux/chamber)</span><span id="fans">…</span></div>
+  <div class="row" id="lampTimerRow" style="display:none; color:var(--accent); font-size:0.8rem"><span>Lamp auto-off</span><span id="lampTimer"></span></div>
+</div>
+<div id="hmsBanner" class="card" style="display:none; background:var(--alert-bg); color:var(--alert-text);"></div>
+<div id="controlsCard">
+<div class="iconrow cols3">
+  <button class="iconbtn" id="lampBtn" aria-label="Chamber lamp" disabled>
+    <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 2a6 6 0 0 0-4 10.5c.6.6 1 1.4 1 2.2v.3h6v-.3c0-.8.4-1.6 1-2.2A6 6 0 0 0 12 2z"/></svg></span><span class="cap">Lamp</span></button>
+  <button class="iconbtn" id="pauseBtn" data-print-action="pause" aria-label="Pause print" disabled>
+    <span class="ico"></span><span class="cap">Pause</span></button>
+  <button class="iconbtn danger" id="stopBtn" data-print-action="stop" aria-label="Stop print" disabled>
+    <span class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="3"/></svg></span><span class="cap">Stop</span></button>
+</div>
+<div class="iconrow">
+  <button class="iconbtn" data-action="lower-bed" aria-label="Lower bed">
+    <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="M12 4v9"/><path d="M8 9l4 4 4-4"/></svg></span><span class="cap">Bed down</span></button>
+  <button class="iconbtn" data-action="home" aria-label="Home axes">
+    <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg></span><span class="cap">Home</span></button>
+  <button class="iconbtn" data-action="extrude" id="extrudeBtn" aria-label="Extrude filament">
+    <span class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 4h14a1 1 0 0 1 .95 1.32l-2.4 6.9a1 1 0 0 1-.95.68H7.4a1 1 0 0 1-.95-.68l-2.4-6.9A1 1 0 0 1 5 4z"/><path d="M12 13.6c-1.5 2-2.2 3.4-2.2 4.5a2.2 2.2 0 0 0 4.4 0c0-1.1-.7-2.5-2.2-4.5z"/></svg></span><span class="cap">Extrude</span></button>
+  <button class="iconbtn" data-action="unload" aria-label="Unload loaded filament" disabled>
+    <span class="ico"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5l7 9H5z"/><rect x="5" y="16" width="14" height="3" rx="1.5"/></svg></span><span class="cap">Unload</span></button>
+</div>
+</div>
+<div class="card" id="camCard">
+  <div id="camEmpty" style="color:var(--muted)">No recordings yet</div>
+  <div id="camControls" style="display:none">
+    <div class="cam-frame">
+      <img id="camImg" alt="printer camera">
+      <button class="cam-live" id="camLiveBtn"><span class="dot"></span>LIVE</button>
+    </div>
+    <input type="range" id="camSlider" min="0" max="1" step="1" value="0">
+    <div class="row"><span id="camTime">…</span>
+      <span class="camctls">
+        <button class="camctl" id="camPlayBtn" aria-label="Play timelapse"></button>
+        <select id="camSpeedSelect">
+          <option value="30">30x</option>
+          <option value="60" selected>60x</option>
+          <option value="300">300x</option>
+          <option value="600">600x</option>
+        </select>
+      </span>
+    </div>
+    <h2 style="margin-top:14px">Recent jobs</h2>
+    <div id="camJobs"></div>
+  </div>
+</div>
+<div class="card" id="dryCard" style="margin-top:16px">
+  <h2>Bed drying</h2>
+  <div class="row"><span>Bed target</span><span id="dryLabel">Off</span></div>
+  <input type="range" id="drySlider" min="0" max="6" step="1" value="0">
+  <div class="row" id="dryTimerRow" style="display:none; color:var(--accent); font-size:0.8rem"><span>Auto-off in</span><span id="dryTimer"></span></div>
+</div>
+<div class="card" id="nozzleCard">
+  <h2>Nozzle (cold pull / clean)</h2>
+  <div class="row"><span>Nozzle target</span><span id="nozzleLabel">Off</span></div>
+  <input type="range" id="nozzleSlider" min="0" max="4" step="1" value="0">
+  <div class="row" id="nozzleTimerRow" style="display:none; color:var(--accent); font-size:0.8rem"><span>Auto-off in</span><span id="nozzleTimer"></span></div>
+</div>
+<div class="card" id="amsCard" style="display:none">
+  <h2>Filament (AMS)</h2>
+  <div id="amsSlots"></div>
+</div>
+</div>
+
+<div id="eventsScreen" style="display:none">
+<div class="topbar">
+  <button class="topicon" id="eventsBack" aria-label="Back">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
+  <span class="screentitle">Events</span>
+  <button class="topicon" id="eventsRefresh" aria-label="Refresh">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+  </button>
+</div>
+<div class="card">
+  <div class="kindrow"><label for="eventsCommands">Commands sent</label><input type="checkbox" id="eventsCommands" checked></div>
+  <div class="kindrow"><label for="eventsReports">Printer reports</label><input type="checkbox" id="eventsReports"></div>
+  <div class="kindrow"><label for="eventsNotifications">Notifications sent</label><input type="checkbox" id="eventsNotifications" checked></div>
+</div>
+<div id="eventsList"></div>
+</div>
+
+<div id="settingsScreen" style="display:none">
+<div class="topbar">
+  <button class="topicon" id="settingsBack" aria-label="Back">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
+  <span class="screentitle">Settings</span>
+</div>
+<div class="card">
+  <h2>Notifications</h2>
+  <div class="row"><span id="notifyState">…</span></div>
+  <div class="notifywhat">Chosen per device, so this phone and anything else you
+    use can want different things.</div>
+  <div id="notifyPrefs" style="display:none">
+    <div id="notifyKinds"></div>
+    <div class="setrow"><label for="notifyBedInterval">Bed on reminder</label>
+      <select id="notifyBedInterval">
+        <option value="0">Never</option>
+        <option value="3600">Every hour</option>
+        <option value="14400">Every 4 hours</option>
+        <option value="28800">Every 8 hours</option>
+        <option value="43200">Every 12 hours</option>
+        <option value="86400">Every 24 hours</option>
+      </select></div>
+  </div>
+  <div class="notifybtns">
+    <button id="notifyBtn" style="display:none">Turn on</button>
+    <button id="notifyTestBtn" style="display:none">Send a test</button>
+  </div>
+  <div id="notifyHint" style="display:none; color:var(--muted); font-size:0.8rem; margin-top:8px"></div>
+</div>
+<div class="card">
+  <h2>Appearance</h2>
+  <div class="setrow"><label for="setTheme">Theme</label>
+    <select id="setTheme">
+      <option value="system">Follow system</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select></div>
+</div>
+<div class="card">
+  <h2>Dashboard</h2>
+  <div id="dashList"></div>
+  <div class="notifywhat">Unticked sections are hidden. The arrows move a section
+    up or down the page.</div>
+</div>
+<div class="card">
+  <h2>Printers</h2>
+  <div id="printerList"></div>
+  <button id="printerAddBtn" style="margin-top:10px">Add printer</button>
+  <div id="printerForm" style="display:none; margin-top:6px">
+    <div class="setrow"><label for="setPrinterName">Name</label>
+      <input type="text" id="setPrinterName" placeholder="Garage P1S" maxlength="40" autocomplete="off"><span class="unit"></span></div>
+    <div class="setrow"><label for="setPrinterIP">Address</label>
+      <input type="text" id="setPrinterIP" placeholder="192.0.2.10" inputmode="decimal"><span class="unit"></span></div>
+    <div class="setrow"><label for="setPrinterSerial">Serial</label>
+      <input type="text" id="setPrinterSerial" placeholder="01P00A000000000"><span class="unit"></span></div>
+    <div class="setrow"><label for="setPrinterCode">Access code</label>
+      <input type="password" id="setPrinterCode" placeholder="required" autocomplete="off"><span class="unit"></span></div>
+    <div class="notifywhat">On the printer: Settings → WLAN for the address and access
+      code, Settings → Device for the serial.</div>
+    <div class="formbtns"><button id="printerSave">Add printer</button><button id="printerCancel">Cancel</button></div>
+    <button id="printerSaveAnyway" style="display:none; margin-top:8px">Save anyway</button>
+  </div>
+  <div id="printerMsg" class="notifywhat" style="margin:8px 0 0"></div>
+</div>
+<div class="card">
+  <h2>General</h2>
+  <div class="setrow"><label for="setCameraStorage">Camera history</label>
+    <input type="number" id="setCameraStorage" min="0.25" max="64" step="0.25"><span class="unit">GB</span></div>
+  <div class="setrow"><label for="setBedOff">Bed heater auto-off</label>
+    <input type="number" id="setBedOff" min="1" max="168" step="1"><span class="unit">hours</span></div>
+  <div class="setrow"><label for="setNozzleOff">Nozzle heater auto-off</label>
+    <input type="number" id="setNozzleOff" min="1" max="10080" step="1"><span class="unit">minutes</span></div>
+  <div class="setrow"><label for="setLampOff">Chamber light auto-off</label>
+    <input type="number" id="setLampOff" min="1" max="168" step="1"><span class="unit">hours idle</span></div>
+  <div class="setrow"><label for="setActivityLimit">Event log</label>
+    <input type="number" id="setActivityLimit" min="1" max="512" step="1"><span class="unit">MB</span></div>
+  <div class="setrow"><label for="setSessionLength">Stay logged in</label>
+    <input type="number" id="setSessionLength" min="1" max="365" step="1"><span class="unit">days</span></div>
+  <button id="settingsSave" disabled>Save</button>
+  <div id="settingsMsg" class="notifywhat" style="margin:8px 0 0"></div>
+</div>
+<div class="card" id="accountCard" style="display:none">
+  <h2>Account</h2>
+  <div class="notifywhat" id="accountWho"></div>
+  <button id="logout">Log out</button>
+</div>
+</div>
+<div id="log"></div>
+<script>
+const $ = id => document.getElementById(id);
+
+// The printers, for the switcher, and which one this page is showing (see
+// "Printer switcher" below).
+let printerList = [];
+let currentPrinter = null;
+try {
+  const fromUrl = new URLSearchParams(location.search).get("printer");
+  currentPrinter = Number(fromUrl || localStorage.getItem("printer")) || null;
+} catch { /* storage blocked: start on the first printer */ }
+
+// --- Session ----------------------------------------------------------------
+// Any 401 means the session lapsed: go log in and come back. Only the first
+// one navigates, since every in-flight poll fails at once.
+const nativeFetch = window.fetch.bind(window);
+let loggingIn = false;
+window.fetch = async (...args) => {
+  const response = await nativeFetch(...args);
+  if (response.status === 401 && !loggingIn) {
+    loggingIn = true;
+    location.href = "/auth/login?next=" + encodeURIComponent(location.pathname + location.search);
+  }
+  return response;
+};
+
+// The Account card is only shown when login is enabled.
+async function refreshAccount() {
+  if (DEMO) return;
+  try {
+    const r = await nativeFetch("/auth/me");
+    if (!r.ok) return;
+    const who = await r.json();
+    $("accountWho").textContent = "Signed in as " + (who.name || who.subject);
+    $("accountCard").style.display = "";
+  } catch {
+    // No login configured, or nothing answering: leave the card hidden.
+  }
+}
+
+$("logout").addEventListener("click", async () => {
+  // The server returns where to go (possibly the provider's logout page).
+  let then = "/";
+  try {
+    const r = await nativeFetch("/auth/logout", { method: "POST" });
+    if (r.ok) then = (await r.json()).then || "/";
+  } catch {}
+  location.href = then;
+});
+
+const fmt = v => (typeof v === "number" ? v.toFixed(1) : "?");
+
+// Icons that swap with state (the rest are inline in the markup).
+const SVG_PLAY  = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>`;
+const SVG_PAUSE = `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>`;
+
+// setIco updates an icon button's glyph and/or caption without clobbering the
+// other span (icon buttons hold an .ico and a .cap child).
+function setIco(btn, svg, cap) {
+  if (svg != null) btn.querySelector(".ico").innerHTML = svg;
+  if (cap != null) btn.querySelector(".cap").textContent = cap;
+}
+
+// Declared early: refresh() can call disarmStop() before the stop-button
+// wiring below runs.
+let stopTimer = null;
+
+// Countdown text: "23h 59m" while over an hour, "14:32" (m:ss) under it.
+function fmtCountdown(secs) {
+  if (secs >= 3600) {
+    return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+  }
+  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+}
+
+function showTimer(rowId, valId, secs) {
+  const active = typeof secs === "number";
+  $(rowId).style.display = active ? "" : "none";
+  if (active) $(valId).textContent = fmtCountdown(secs);
+}
+
+// Job duration: "2h 15m" from an hour up, "45 min" below.
+function fmtMinutes(mins) {
+  const m = Math.floor(mins);
+  if (m >= 60) return `${Math.floor(m / 60)}h ${m % 60}m`;
+  return `${m} min`;
+}
+
+// The AMS reports desiccant dryness as a 1-5 level. Bambu Studio shows that as
+// a letter grade with A driest, so 5 is A.
+const HUMIDITY_GRADES = { 5: "A", 4: "B", 3: "C", 2: "D", 1: "E" };
+
+// amsHumidityText reports whatever the unit sends without inventing anything: a
+// raw RH% (newer AMS) and/or the letter grade. A level outside 1-5 gets no
+// letter rather than a made-up one.
+function amsHumidityText(unit) {
+  const parts = [];
+  const raw = unit.humidity_raw;
+  if (typeof raw === "number" || (typeof raw === "string" && raw !== "")) parts.push(`${raw}%`);
+  const grade = HUMIDITY_GRADES[parseInt(unit.humidity, 10)];
+  if (grade) parts.push(grade);
+  return parts.join(" · ");
+}
+
+// amsTarget is a tray's global index (ams_id*4 + tray_id), comparable with
+// ams.tray_now. null if the ids aren't usable.
+function amsTarget(unit, slot) {
+  const u = parseInt(unit && unit.id, 10);
+  const t = parseInt(slot && slot.id, 10);
+  if (!Number.isInteger(u) || !Number.isInteger(t) || t < 0 || t > 3) return null;
+  return u * 4 + t;
+}
+
+// loadedTray returns the global index of the tray currently fed to the nozzle
+// (ams.tray_now), or null when nothing is loaded. Bambu uses 254 (external
+// spool) and 255 (none) as sentinels, so anything >= 254 means "not an AMS
+// tray".
+function loadedTray(ams) {
+  const n = parseInt(ams && ams.tray_now, 10);
+  return Number.isInteger(n) && n < 254 ? n : null;
+}
+
+let amsEditing = false;
+function renderAms(ams, canEdit) {
+  const card = $("amsCard");
+  const container = $("amsSlots");
+  // While an inline filament editor is open, leave the DOM alone — the 2s
+  // refresh would otherwise wipe the half-filled form (same idea as the slider
+  // drag guards).
+  if (amsEditing) return;
+  const loadedIdx = loadedTray(ams);
+  const units = ams && Array.isArray(ams.ams) ? ams.ams : [];
+  const valid = units.filter(u => u && typeof u === "object" && Array.isArray(u.tray));
+  if (!valid.some(u => u.tray.length > 0)) {
+    card.style.display = "none";
+    return;
+  }
+  card.style.display = "";
+  container.innerHTML = "";
+  valid.forEach(unit => {
+    const hum = amsHumidityText(unit);
+    if (hum) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const label = document.createElement("span");
+      label.textContent = "Humidity";
+      const val = document.createElement("span");
+      val.textContent = hum;
+      row.append(label, val);
+      container.appendChild(row);
+    }
+    unit.tray.forEach(slot => {
+      if (!slot || typeof slot !== "object") return;
+      const hasFilament = typeof slot.tray_type === "string" && slot.tray_type !== "";
+      const colorHex = typeof slot.tray_color === "string" ? slot.tray_color.slice(0, 6) : "666666";
+      const row = document.createElement("div");
+      row.className = "ams-slot";
+      const swatch = document.createElement("span");
+      swatch.className = "ams-swatch";
+      swatch.style.background = "#" + colorHex;
+      row.appendChild(swatch);
+      row.appendChild(document.createTextNode(hasFilament ? slot.tray_type : "empty"));
+      const right = document.createElement("span");
+      right.style.cssText = "margin-left:auto; display:flex; align-items:center; gap:8px";
+      // Mark whichever tray is currently fed to the nozzle so the Unload button
+      // (the only load/unload control) has an obvious referent.
+      if (hasFilament && amsTarget(unit, slot) === loadedIdx) {
+        const tag = document.createElement("span");
+        tag.textContent = "loaded";
+        tag.style.cssText = "font-size:0.72rem; font-weight:600; color:var(--accent)";
+        right.appendChild(tag);
+      }
+      // Edit opens an inline profile editor (colour/type/temps). Idle-only,
+      // matching the server guard on set-filament.
+      const edit = document.createElement("button");
+      edit.textContent = "Edit";
+      edit.style.cssText = "padding:5px 12px; font-size:0.78rem; border-radius:8px";
+      edit.disabled = !canEdit;
+      right.appendChild(edit);
+      row.appendChild(right);
+      container.appendChild(row);
+
+      const editor = buildFilamentEditor(unit, slot);
+      editor.style.display = "none";
+      container.appendChild(editor);
+      edit.addEventListener("click", () => {
+        const open = editor.style.display === "none";
+        editor.style.display = open ? "" : "none";
+        amsEditing = open;
+      });
+    });
+  });
+}
+
+// buildFilamentEditor makes the inline per-tray profile form, prefilled from the
+// tray's reported values. tray_info_idx (the printer's profile id) is sent back
+// unchanged so an edit doesn't clobber it.
+function buildFilamentEditor(unit, slot) {
+  const box = document.createElement("div");
+  box.className = "ams-editor";
+  const color6 = typeof slot.tray_color === "string" ? slot.tray_color.slice(0, 6) : "666666";
+  const type = typeof slot.tray_type === "string" ? slot.tray_type : "";
+  const tmin = slot.nozzle_temp_min ?? "";
+  const tmax = slot.nozzle_temp_max ?? "";
+  const idx = typeof slot.tray_info_idx === "string" ? slot.tray_info_idx : "";
+
+  const colorIn = mkInput("color", "#" + color6);
+  const typeIn = mkInput("text", type);
+  typeIn.maxLength = 20; typeIn.placeholder = "PLA";
+  const minIn = mkInput("number", tmin); minIn.min = 0; minIn.max = 300; minIn.className = "temp";
+  const maxIn = mkInput("number", tmax); maxIn.min = 0; maxIn.max = 300; maxIn.className = "temp";
+
+  box.append(
+    editRow("Color", colorIn),
+    editRow("Type", typeIn),
+    editRow("Temp °C", spanOf(minIn, document.createTextNode(" – "), maxIn)),
+  );
+  const save = document.createElement("button");
+  save.textContent = "Save";
+  save.className = "ams-save";
+  box.appendChild(save);
+
+  save.addEventListener("click", () => {
+    const type = typeIn.value.trim();
+    if (!type) { $("log").textContent = "type is required"; return; }
+    const q = new URLSearchParams({
+      ams_id: unit.id, tray_id: slot.id,
+      tray_color: colorIn.value.slice(1) + "FF", // #RRGGBB -> RRGGBBAA
+      tray_type: type,
+      nozzle_temp_min: minIn.value || "0",
+      nozzle_temp_max: maxIn.value || "0",
+      tray_info_idx: idx,
+    });
+    amsEditing = false; // let the next refresh redraw with the new values
+    post("set-filament?" + q.toString());
+  });
+  return box;
+}
+function mkInput(type, value) {
+  const el = document.createElement("input");
+  el.type = type;
+  if (value !== "" && value != null) el.value = value;
+  return el;
+}
+function editRow(label, control) {
+  const row = document.createElement("div");
+  row.className = "ams-edit-row";
+  const l = document.createElement("label");
+  l.textContent = label;
+  row.append(l, control);
+  return row;
+}
+function spanOf(...nodes) {
+  const s = document.createElement("span");
+  s.append(...nodes);
+  return s;
+}
+
+// Bed-drying presets from Bambu's official P1S bed-drying table
+// (wiki.bambulab.com/en/filament-acc/filament/dry-filament): PLA 60-70,
+// PLA-CF/silk 65-75, PETG 75-85, TPU 80-90, support-ABS 85-95,
+// ABS/ASA/PC/PVA/PA/PET-CF 90-100. PPA-CF/PPS-CF want 110-120, which the P1S
+// bed can't reach — those need a dedicated dryer.
+const DRY_STOPS = [
+  { t: 0,   label: "Off" },
+  { t: 60,  label: "60°C · PLA" },
+  { t: 70,  label: "70°C · PLA-CF/silk" },
+  { t: 80,  label: "80°C · PETG" },
+  { t: 85,  label: "85°C · TPU" },
+  { t: 90,  label: "90°C · ABS/ASA/PC" },
+  { t: 100, label: "100°C · PA/PVA/desiccant" },
+];
+
+// Nozzle presets for cleaning / cold pulls. Bambu's cold-pull guide
+// (wiki.bambulab.com/en/p1/manual/p1s-cold-pull) sets the nozzle slightly
+// above the material's print temp before extruding, so these are print temp
+// + ~5°C: PLA 225, PETG 255, ABS/ASA/PC 275, PA/CF 295.
+const NOZZLE_STOPS = [
+  { t: 0,   label: "Off" },
+  { t: 225, label: "225°C · PLA" },
+  { t: 255, label: "255°C · PETG" },
+  { t: 275, label: "275°C · ABS/PC" },
+  { t: 295, label: "295°C · PA/CF" },
+];
+
+// presetSlider wires a slider that snaps to stops and posts the chosen
+// temperature to endpoint on release. While it is being dragged, status
+// updates leave it alone.
+function presetSlider(sliderId, labelId, stops, endpoint) {
+  const slider = $(sliderId), label = $(labelId);
+  const ctl = {
+    dragging: false,
+    // Show the printer's reported target as the nearest stop.
+    setFromTarget(target) {
+      const t = typeof target === "number" ? target : 0;
+      let best = 0, bestDiff = Infinity;
+      stops.forEach((stop, i) => {
+        const d = Math.abs(stop.t - t);
+        if (d < bestDiff) { bestDiff = d; best = i; }
+      });
+      slider.value = best;
+      label.textContent = stops[best].label;
+    },
+  };
+  slider.addEventListener("input", () => {
+    ctl.dragging = true;
+    label.textContent = stops[Number(slider.value)].label;
+  });
+  slider.addEventListener("change", () => {
+    ctl.dragging = false;
+    post(`${endpoint}?temp=${stops[Number(slider.value)].t}`);
+  });
+  return ctl;
+}
+const drySlider = presetSlider("drySlider", "dryLabel", DRY_STOPS, "set-bed-temp");
+const nozzleSlider = presetSlider("nozzleSlider", "nozzleLabel", NOZZLE_STOPS, "set-nozzle-temp");
+
+// Demo mode: preview the UI without a printer. ?demo is an idle printer with
+// every control usable; ?demo=print is a running job with controls locked.
+const demoParams = new URLSearchParams(location.search);
+const DEMO = demoParams.has("demo");
+const DEMO_PRINT = demoParams.get("demo") === "print";
+let demoTick = 0;
+// Demo targets are mutable so the sliders actually do something: in the idle
+// demo the controls are enabled and their changes update these locally.
+let demoBedTarget = 60, demoNozzleTarget = 225;
+let demoBedSetTick = 0, demoNozzleSetTick = 0; // demoTick when each was last set
+let demoLampOn = true;
+// Mutable so the demo filament editor's saves visibly update the swatches.
+let demoTrays = [
+  { id: "0", tray_type: "PLA",  tray_color: "FF6B35FF", nozzle_temp_min: "190", nozzle_temp_max: "230", tray_info_idx: "GFA00" },
+  { id: "1", tray_type: "PETG", tray_color: "2E86ABFF", nozzle_temp_min: "220", nozzle_temp_max: "260", tray_info_idx: "GFG00" },
+  { id: "2", tray_type: "ABS",  tray_color: "111418FF", nozzle_temp_min: "240", nozzle_temp_max: "270", tray_info_idx: "GFB00" },
+  { id: "3", tray_type: "PLA",  tray_color: "F2F2F2FF", nozzle_temp_min: "190", nozzle_temp_max: "230", tray_info_idx: "GFA01" },
+];
+function demoStatus() {
+  demoTick++;
+  const base = {
+    connected: true,
+    bedTemp: (demoBedTarget || 22) - 0.6 + Math.sin(demoTick) * 0.3, bedTarget: demoBedTarget,
+    nozzleTemp: (demoNozzleTarget || 24) - 1 + Math.sin(demoTick) * 1.2, nozzleTarget: demoNozzleTarget,
+    chamberLight: demoLampOn,
+    // Each demo refresh ≈ 2s, so convert elapsed ticks to seconds remaining.
+    bedOffIn: demoBedTarget > 0 ? Math.max(0, 86400 - (demoTick - demoBedSetTick) * 2) : null,
+    nozzleOffIn: demoNozzleTarget > 0 ? Math.max(0, 900 - (demoTick - demoNozzleSetTick) * 2) : null,
+    fans: { cooling: 15, aux: 0, chamber: 8 },
+    ams: { tray_now: "0", ams: [{ id: "0", humidity: "2", humidity_raw: "24", tray: demoTrays }] },
+    hms: [],
+  };
+  // Two demo printers, so the switcher shows: the second is printing (or, in
+  // ?demo=print, the first).
+  if (DEMO_PRINT !== (currentPrinter === 2)) {
+    const total = 240, layer = Math.min(total, 20 + demoTick * 2);
+    return { ...base, gcodeState: "RUNNING", actionsAllowed: false,
+      progress: Math.min(99, Math.round((layer / total) * 100)),
+      jobName: "demo_benchy.3mf", layerNum: layer, totalLayerNum: total,
+      remainingMinutes: Math.max(1, Math.round((total - layer) * 0.6)),
+      printActions: { pause: true, resume: false, stop: true } };
+  }
+  return { ...base, gcodeState: "IDLE", actionsAllowed: true,
+    progress: null, jobName: null,
+    printActions: { pause: false, resume: false, stop: false } };
+}
+if (DEMO) {
+  applyPrinterList([
+    { id: 1, name: "Garage", connected: true, gcodeState: DEMO_PRINT ? "RUNNING" : "IDLE", progress: DEMO_PRINT ? 42 : null },
+    { id: 2, name: "Office", connected: true, gcodeState: DEMO_PRINT ? "IDLE" : "RUNNING", progress: DEMO_PRINT ? null : 42 },
+  ]);
+  const mode = DEMO_PRINT ? "printing" : "idle";
+  document.title += ` · demo (${mode})`;
+  $("log").textContent = `demo (${mode}) — no printer connected`;
+}
+
+// The newest status, so the dashboard can be re-drawn without waiting for the
+// next one (null until the first arrives).
+let lastStatus = null;
+
+// refresh re-draws the status: a fresh one in demo, the last one pushed
+// otherwise.
+function refresh() {
+  if (DEMO) {
+    renderStatus(demoStatus());
+  } else if (lastStatus) {
+    renderStatus(lastStatus);
+  }
+}
+
+function renderStatus(s) {
+  try {
+    $("conn").textContent = s.connected ? "connected"
+      : s.configured === false ? "no printer set up (see Settings)"
+      : s.problem || "connecting…";
+    $("conn").className = s.connected ? "ok" : "bad";
+    $("state").textContent = s.gcodeState;
+    $("bed").textContent = `${fmt(s.bedTemp)} / ${fmt(s.bedTarget)}°C`;
+    $("nozzle").textContent = `${fmt(s.nozzleTemp)} / ${fmt(s.nozzleTarget)}°C`;
+    const p = s.progress;
+    $("jobEmpty").style.display = (p != null || s.jobName) ? "none" : "";
+    $("progressRow").style.display = p == null ? "none" : "";
+    if (p != null) $("progress").textContent = `${p}%`;
+    $("jobRow").style.display = s.jobName ? "" : "none";
+    if (s.jobName) $("jobName").textContent = s.jobName;
+    const hasLayers = s.totalLayerNum != null && s.totalLayerNum > 0;
+    $("layerRow").style.display = hasLayers ? "" : "none";
+    if (hasLayers) $("layer").textContent = `${s.layerNum ?? "?"} / ${s.totalLayerNum}`;
+    $("timeRow").style.display = s.remainingMinutes != null ? "" : "none";
+    if (s.remainingMinutes != null) $("timeRemaining").textContent = fmtMinutes(s.remainingMinutes);
+    const fans = s.fans || {};
+    $("fans").textContent = `${fans.cooling ?? "?"} / ${fans.aux ?? "?"} / ${fans.chamber ?? "?"}`;
+    renderAms(s.ams, s.actionsAllowed);
+    const hms = Array.isArray(s.hms) ? s.hms : [];
+    const banner = $("hmsBanner");
+    if (hms.length === 0) {
+      banner.style.display = "none";
+    } else {
+      banner.style.display = "";
+      banner.textContent = hms.map(e => `⚠️ ${e.message}`).join(" · ");
+    }
+    // The drying and nozzle cards are idle-only tools. During a print the
+    // printer drives bed/nozzle temps itself, so the sliders would show a
+    // preset that disagrees with the live machine status (e.g. slider 60 vs
+    // bed 55). Hide them entirely unless the printer is idle and reachable.
+    $("dryCard").style.display = s.actionsAllowed ? "" : "none";
+    $("nozzleCard").style.display = s.actionsAllowed ? "" : "none";
+    // Sliders mirror the printer's targets unless the user is dragging them.
+    if (!drySlider.dragging) drySlider.setFromTarget(s.bedTarget);
+    $("drySlider").disabled = !s.actionsAllowed;
+    if (!nozzleSlider.dragging) nozzleSlider.setFromTarget(s.nozzleTarget);
+    $("nozzleSlider").disabled = !s.actionsAllowed;
+    showTimer("dryTimerRow", "dryTimer", s.bedOffIn);
+    showTimer("nozzleTimerRow", "nozzleTimer", s.nozzleOffIn);
+    showTimer("lampTimerRow", "lampTimer", s.lampOffIn);
+    document.querySelectorAll("[data-action]").forEach(b => b.disabled = !s.actionsAllowed);
+    // Extrude also needs a hot nozzle (cold extrusion strips filament); the
+    // printer enforces this too, but disable the button to make it obvious.
+    $("extrudeBtn").disabled = !s.actionsAllowed || (s.nozzleTemp ?? 0) < 170;
+    // The lamp works in any state; it is disabled only until its state is known.
+    const lampKnown = typeof s.chamberLight === "boolean";
+    const lampOn = s.chamberLight === true;
+    const lamp = $("lampBtn");
+    lamp.dataset.lamp = lampOn ? "lamp-off" : "lamp-on";
+    setIco(lamp, null, lampKnown ? (lampOn ? "Lamp on" : "Lamp off") : "Lamp");
+    lamp.classList.toggle("on", lampOn);
+    lamp.setAttribute("aria-label", lampOn ? "Turn chamber lamp off" : "Turn chamber lamp on");
+    lamp.disabled = !s.connected || !lampKnown;
+
+    // Pause button toggles to Resume (play icon) while the print is paused.
+    const pa = s.printActions || {};
+    const pause = $("pauseBtn");
+    const paused = pa.resume;
+    pause.dataset.printAction = paused ? "resume" : "pause";
+    setIco(pause, paused ? SVG_PLAY : SVG_PAUSE, paused ? "Resume" : "Pause");
+    pause.setAttribute("aria-label", paused ? "Resume print" : "Pause print");
+    document.querySelectorAll("[data-print-action]").forEach(b => {
+      b.disabled = !pa[b.dataset.printAction];
+    });
+    if (!pa.stop) disarmStop();
+  } catch {
+    renderUnreachable();
+  }
+}
+
+function renderUnreachable() {
+  $("conn").textContent = "bridge unreachable";
+  $("conn").className = "bad";
+  document.querySelectorAll("[data-action], [data-print-action]").forEach(b => b.disabled = true);
+  $("dryCard").style.display = "none";
+  $("nozzleCard").style.display = "none";
+  $("drySlider").disabled = true;
+  $("nozzleSlider").disabled = true;
+  $("lampBtn").disabled = true;
+  // Don't leave a frozen countdown implying a timer we can no longer confirm.
+  $("dryTimerRow").style.display = "none";
+  $("nozzleTimerRow").style.display = "none";
+  $("lampTimerRow").style.display = "none";
+}
+
+if (DEMO) {
+  refresh();
+  setInterval(refresh, 2000);
+}
+
+async function post(action) {
+  // In demo there is no printer: apply slider changes locally, no-op the rest.
+  if (DEMO) {
+    if (action === "lamp-on" || action === "lamp-off") {
+      demoLampOn = action === "lamp-on";
+      $("log").textContent = `demo: lamp ${demoLampOn ? "on" : "off"}`;
+      return;
+    }
+    const fm = action.match(/^set-filament\?(.*)/);
+    if (fm) {
+      const p = new URLSearchParams(fm[1]);
+      const tray = demoTrays.find(t => t.id === p.get("tray_id"));
+      if (tray) {
+        tray.tray_color = p.get("tray_color");
+        tray.tray_type = p.get("tray_type");
+        tray.nozzle_temp_min = p.get("nozzle_temp_min");
+        tray.nozzle_temp_max = p.get("nozzle_temp_max");
+      }
+      $("log").textContent = `demo: set filament tray ${p.get("tray_id")}`;
+      return;
+    }
+    const m = action.match(/^set-(bed|nozzle)-temp\?temp=(\d+)/);
+    if (m) {
+      const t = Number(m[2]);
+      if (m[1] === "bed") { demoBedTarget = t; demoBedSetTick = demoTick; }
+      else { demoNozzleTarget = t; demoNozzleSetTick = demoTick; }
+      $("log").textContent = `demo: set ${m[1]} to ${t}°C`;
+    } else {
+      $("log").textContent = `demo: ${action} (no printer connected)`;
+    }
+    return;
+  }
+  try {
+    const r = await fetch(withPrinter(`/api/actions/${action}`), { method: "POST" });
+    $("log").textContent = await r.text();
+  } catch {
+    $("log").textContent = "request failed";
+  }
+}
+
+document.querySelectorAll("[data-action]").forEach(b =>
+  b.addEventListener("click", () => post(b.dataset.action)));
+
+$("lampBtn").addEventListener("click", () => post($("lampBtn").dataset.lamp));
+
+// Stop kills the print, so it takes two taps: the first arms the button for
+// 4 seconds, the second actually sends.
+function disarmStop() {
+  const b = $("stopBtn");
+  b.classList.remove("armed");
+  setIco(b, null, "Stop");
+  if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+}
+
+document.querySelectorAll("[data-print-action]").forEach(b =>
+  b.addEventListener("click", () => {
+    if (b.dataset.printAction !== "stop") { post(b.dataset.printAction); return; }
+    if (b.classList.contains("armed")) {
+      disarmStop();
+      post("stop");
+    } else {
+      b.classList.add("armed");
+      setIco(b, null, "Confirm?");
+      stopTimer = setTimeout(disarmStop, 4000);
+    }
+  }));
+
+// Camera: every view reads from the recording buffer. "Live" means following
+// its tail; scrubbing or playing a job's timelapse stops following.
+let camRange = null; // {oldest, newest} in unix seconds, or nulls if empty
+let camPos = 0;
+let camFollowing = true; // true: keep showing the newest frame as it arrives
+let camPlaying = false; // true: auto-advancing through a job's timelapse
+let camPlayTimer = null;
+let camBoundEnd = null; // caps timelapse playback to one job's footage
+// While a job's timelapse owns the scrub bar, {min,max} is that job's span
+// instead of the server's window. A retained job older than the window would
+// otherwise play with the thumb pinned at the left edge. Cleared by Live.
+let camJobSpan = null;
+
+// Frames arrive about once a second, so advancing by the full speed once a
+// second would show one frame per second — a slideshow, at these speeds.
+// Advance a quarter as far four times as often: same playback rate, 4fps.
+const CAM_TICK_MS = 250;
+
+function fmtCamTime(ts, extra) {
+  return new Date(ts * 1000).toLocaleString([], {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", ...extra,
+  });
+}
+
+// Frames are fetched rather than set as an <img> src so the response header
+// with the frame's real capture time can be read; it can differ from the
+// requested time by hours across retention gaps.
+let camFrameSeq = 0;  // drops responses overtaken by a newer request
+let camFrameUrl = null; // object URL on screen, revoked when replaced
+
+async function showCamFrame(ts) {
+  const seq = ++camFrameSeq;
+  let r;
+  try {
+    r = await fetch(withPrinter(`/camera/history/frame?ts=${Math.floor(ts)}`));
+  } catch {
+    return; // hold the frame and caption already shown
+  }
+  // A 404 means nothing was recorded at or after this point; holding the last
+  // frame is better than blanking the view.
+  if (!r.ok) return;
+  const taken = Number(r.headers.get("X-Frame-Timestamp"));
+  const blob = await r.blob();
+  // At four frames a second a slow response can land after a newer one; showing
+  // it would paint a stale frame over a fresher one.
+  if (seq !== camFrameSeq) return;
+  const url = URL.createObjectURL(blob);
+  $("camImg").src = url;
+  if (camFrameUrl) URL.revokeObjectURL(camFrameUrl); // else every frame leaks
+  camFrameUrl = url;
+  $("camTime").textContent = fmtCamTime(taken > 0 ? taken : ts, { second: "2-digit" });
+}
+
+// seekTo shows one frame and moves the thumb to match.
+function seekTo(ts) {
+  camPos = ts;
+  $("camSlider").value = Math.floor(ts);
+  showCamFrame(ts);
+}
+
+function setCamBounds(min, max) {
+  $("camSlider").min = min;
+  $("camSlider").max = max;
+}
+
+// The live-update socket (see connectLive), declared here because following
+// the tail is switched on below, before the socket is opened.
+let liveSocket = null;
+let liveRetry = 1000;
+
+// showLiveFrame paints a frame pushed by the server while following the tail.
+function showLiveFrame(ts, jpeg) {
+  ++camFrameSeq; // any frame still being fetched for a scrub is now stale
+  const url = URL.createObjectURL(new Blob([jpeg], { type: "image/jpeg" }));
+  $("camImg").src = url;
+  if (camFrameUrl) URL.revokeObjectURL(camFrameUrl);
+  camFrameUrl = url;
+  camPos = ts;
+  $("camSlider").value = Math.floor(ts);
+  $("camTime").textContent = fmtCamTime(ts, { second: "2-digit" });
+}
+
+// The LIVE badge is lit while following the tail and dimmed when scrubbed back.
+function setFollowing(on) {
+  camFollowing = on;
+  // While following, the server sends each frame as it is recorded.
+  liveSend({ type: "follow", on });
+  const btn = $("camLiveBtn");
+  btn.classList.toggle("on", on);
+  // The badge is both the live indicator and the way back to it, so the label
+  // has to say which of the two applies right now.
+  btn.setAttribute("aria-label", on ? "Live view" : "Jump to live view");
+}
+
+function setCamPlayIcon(playing) {
+  $("camPlayBtn").innerHTML = playing ? SVG_PAUSE : SVG_PLAY;
+  $("camPlayBtn").setAttribute("aria-label", playing ? "Pause timelapse" : "Play timelapse");
+}
+
+// stopCamPlayback only stops advancing; the job being watched (camBoundEnd,
+// camJobSpan) stays selected until Live is tapped.
+function stopCamPlayback() {
+  camPlaying = false;
+  setCamPlayIcon(false);
+  if (camPlayTimer) { clearInterval(camPlayTimer); camPlayTimer = null; }
+}
+
+function startCamPlayback() {
+  const cap = camBoundEnd ?? (camRange && camRange.newest);
+  if (cap == null) return; // nothing to play towards yet
+  setFollowing(false);
+  camPlaying = true;
+  setCamPlayIcon(true);
+  const step = Number($("camSpeedSelect").value) * (CAM_TICK_MS / 1000);
+  camPlayTimer = setInterval(() => {
+    if (camPos + step >= cap) {
+      seekTo(cap);
+      stopCamPlayback();
+      return;
+    }
+    seekTo(camPos + step);
+  }, CAM_TICK_MS);
+}
+
+$("camPlayBtn").addEventListener("click", () => {
+  if (camPlaying) stopCamPlayback();
+  else startCamPlayback();
+});
+// The speed is read when playback starts, so a change mid-timelapse only takes
+// effect by restarting the timer.
+$("camSpeedSelect").addEventListener("change", () => {
+  if (camPlaying) { stopCamPlayback(); startCamPlayback(); }
+});
+setCamPlayIcon(false);
+setFollowing(camFollowing);
+
+$("camSlider").addEventListener("input", () => {
+  setFollowing(false);
+  stopCamPlayback();
+  camPos = Number($("camSlider").value);
+  showCamFrame(camPos);
+});
+
+$("camLiveBtn").addEventListener("click", () => {
+  stopCamPlayback();
+  camJobSpan = null;
+  camBoundEnd = null;
+  setFollowing(true);
+  if (camRange && camRange.newest != null) {
+    setCamBounds(camRange.oldest, camRange.newest);
+    seekTo(camRange.newest);
+  }
+});
+
+function playJob(job) {
+  // An in-progress job is capped by the live tail, so without a known range
+  // there is no end to play towards and no valid upper bound for the bar.
+  const end = job.end || (camRange && camRange.newest);
+  if (end == null) return;
+  stopCamPlayback();
+  setFollowing(false);
+  camBoundEnd = end;
+  camJobSpan = { min: job.start, max: end };
+  setCamBounds(camJobSpan.min, camJobSpan.max);
+  seekTo(job.start);
+  startCamPlayback();
+}
+
+function renderCamJobs(jobs) {
+  const container = $("camJobs");
+  container.innerHTML = "";
+  jobs.forEach(j => {
+    const row = document.createElement("div");
+    row.className = "row";
+    const label = document.createElement("span");
+    label.append(j.name || "(unnamed job)");
+    // Reprinting the same file is common, so the name alone doesn't identify a
+    // job — the start time is what tells two runs apart.
+    const when = document.createElement("span");
+    when.className = "cam-job-time";
+    when.textContent = fmtCamTime(j.start);
+    label.appendChild(when);
+    const btn = document.createElement("button");
+    btn.textContent = j.end ? "Timelapse" : "Watch job so far";
+    btn.style.cssText = "padding:6px 14px; font-size:0.8rem; border-radius:8px";
+    btn.addEventListener("click", () => playJob(j));
+    row.append(label, btn);
+    container.appendChild(row);
+  });
+}
+
+function applyCamRange(range) {
+  camRange = range;
+  const has = camRange.oldest != null && camRange.newest != null;
+  $("camEmpty").style.display = has ? "none" : "";
+  $("camControls").style.display = has ? "" : "none";
+  if (!has) return;
+  // The server decides how far back the bar reaches: one history window while
+  // idle, or just before the running print started.
+  if (!camJobSpan) setCamBounds(camRange.oldest, camRange.newest);
+  // Frames themselves arrive on the socket while following; this only keeps
+  // the thumb at the end of a bar that is still growing.
+  if (camFollowing) $("camSlider").value = camRange.newest;
+}
+
+// --- Printer switcher ---------------------------------------------------------
+// Which printer the dashboard, camera and controls are about. Remembered per
+// device; the server falls back to the first printer if it is gone.
+
+// Adds the selected printer to a request URL.
+function withPrinter(url) {
+  if (currentPrinter == null) return url;
+  return url + (url.includes("?") ? "&" : "?") + `printer=${currentPrinter}`;
+}
+
+function selectPrinter(id) {
+  if (id === currentPrinter) return;
+  currentPrinter = id;
+  try { localStorage.setItem("printer", String(id)); } catch { /* not remembered */ }
+  renderSwitcher();
+  if (DEMO) { refresh(); return; }
+  // The camera starts at the new printer's live view.
+  setFollowing(true);
+  liveSend({ type: "select", printer: id });
+}
+
+function renderSwitcher() {
+  const bar = $("switcher");
+  bar.style.display = printerList.length > 1 ? "" : "none";
+  bar.innerHTML = "";
+  for (const p of printerList) {
+    const b = document.createElement("button");
+    b.setAttribute("aria-pressed", String(p.id === currentPrinter));
+    const dot = document.createElement("span");
+    dot.className = "dot " + (p.connected ? "ok" : "bad");
+    const name = document.createElement("span");
+    name.textContent = p.name;
+    b.append(dot, name);
+    if (p.progress != null) {
+      const pct = document.createElement("span");
+      pct.className = "pct";
+      pct.textContent = `${p.progress}%`;
+      b.appendChild(pct);
+    }
+    b.title = p.connected ? `${p.name}: ${p.gcodeState}` : `${p.name}: ${p.problem || "not connected"}`;
+    b.addEventListener("click", () => selectPrinter(p.id));
+    bar.appendChild(b);
+  }
+}
+
+function applyPrinterList(list) {
+  printerList = list;
+  if (!list.some(p => p.id === currentPrinter)) currentPrinter = list.length ? list[0].id : null;
+  renderSwitcher();
+  if ($("settingsScreen").style.display !== "none") renderPrinterList();
+}
+
+// --- Live updates -------------------------------------------------------------
+// One websocket carries everything that changes on its own: the printer's
+// status, the camera's recorded span, the recent prints, and — while following
+// the tail — each camera frame as it is recorded. The server sends a complete
+// picture on connect, so a reconnect misses nothing.
+function liveSend(msg) {
+  if (liveSocket && liveSocket.readyState === WebSocket.OPEN) liveSocket.send(JSON.stringify(msg));
+}
+
+function connectLive() {
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/live");
+  ws.binaryType = "arraybuffer";
+  let opened = false;
+  ws.onopen = () => {
+    opened = true;
+    liveRetry = 1000;
+    liveSocket = ws;
+    if (currentPrinter != null) liveSend({ type: "select", printer: currentPrinter });
+    liveSend({ type: "follow", on: camFollowing });
+  };
+  ws.onmessage = ev => {
+    if (typeof ev.data !== "string") {
+      // A frame: an 8-byte big-endian capture time, then the JPEG.
+      const ts = Number(new DataView(ev.data).getBigUint64(0));
+      if (camFollowing) showLiveFrame(ts, ev.data.slice(8));
+      return;
+    }
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "printers") {
+      applyPrinterList(msg.printers);
+    } else if (msg.type === "status") {
+      // Until this page picks one, the server shows the first printer.
+      if (msg.printer != null && msg.printer !== currentPrinter && !printerList.some(p => p.id === currentPrinter)) {
+        currentPrinter = msg.printer;
+        renderSwitcher();
+      }
+      lastStatus = msg;
+      renderStatus(msg);
+    } else if (msg.type === "range") {
+      applyCamRange(msg);
+    } else if (msg.type === "jobs") {
+      renderCamJobs(msg.jobs);
+    }
+  };
+  ws.onclose = () => {
+    if (liveSocket === ws) liveSocket = null;
+    renderUnreachable();
+    // A socket refused before it opened may mean the login lapsed, which a
+    // websocket can't say; an ordinary request can, and the fetch wrapper
+    // sends the page to log in on its 401.
+    if (!opened) fetch("/api/status").catch(() => {});
+    setTimeout(connectLive, liveRetry);
+    liveRetry = Math.min(liveRetry * 2, 30000);
+  };
+}
+
+if (!DEMO) connectLive();
+
+// --- Notifications ----------------------------------------------------------
+// On iPhone this needs the page added to the Home Screen; say so when push
+// isn't available.
+const PUSH_READY = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const INSTALLED = window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+
+let swReg = null;
+let pushSub = null;
+
+function b64ToBytes(s) {
+  const raw = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - s.length % 4) % 4));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+
+function bytesToB64(buf) {
+  const raw = String.fromCharCode(...new Uint8Array(buf));
+  return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Display names for notification kinds.
+const KIND_LABELS = {
+  "print-started": "Print started",
+  "print-finished": "Print finished",
+  "print-ended": "Print ended without finishing",
+  "printer-error": "Printer error",
+  "heater-off": "Heater turned off automatically",
+};
+
+// Saved as soon as they change (unlike the timings, which wait for Save).
+async function savePrefs() {
+  if (!pushSub) return;
+  const kinds = [...document.querySelectorAll("#notifyKinds input:checked")].map(i => i.value);
+  try {
+    const r = await fetch("/api/push/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: pushSub.endpoint,
+        kinds,
+        bedInterval: Number($("notifyBedInterval").value),
+      }),
+    });
+    $("settingsMsg").textContent = r.ok ? "Saved." : (await r.text()).trim();
+  } catch (e) {
+    $("settingsMsg").textContent = `could not save: ${e.message || e}`;
+  }
+}
+
+async function loadPrefs() {
+  $("notifyPrefs").style.display = pushSub ? "" : "none";
+  if (!pushSub) return;
+  let prefs;
+  try {
+    const r = await fetch(`/api/push/preferences?endpoint=${encodeURIComponent(pushSub.endpoint)}`);
+    if (!r.ok) return;
+    prefs = await r.json();
+  } catch {
+    return;
+  }
+  const rows = document.createElement("div");
+  for (const kind of prefs.available) {
+    const row = document.createElement("div");
+    row.className = "kindrow";
+    const label = document.createElement("label");
+    label.textContent = KIND_LABELS[kind] || kind;
+    label.htmlFor = `kind-${kind}`;
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = `kind-${kind}`;
+    box.value = kind;
+    box.checked = prefs.kinds.includes(kind);
+    box.addEventListener("change", savePrefs);
+    row.append(label, box);
+    rows.appendChild(row);
+  }
+  $("notifyKinds").innerHTML = "";
+  $("notifyKinds").appendChild(rows);
+  $("notifyBedInterval").value = String(prefs.bedInterval);
+}
+
+$("notifyBedInterval").addEventListener("change", savePrefs);
+
+function renderNotify() {
+  const on = Boolean(pushSub);
+  const blocked = Notification.permission === "denied";
+  $("notifyState").textContent = on ? "On for this device" : blocked ? "Blocked in browser settings" : "Off";
+  $("notifyBtn").style.display = blocked ? "none" : "";
+  $("notifyBtn").textContent = on ? "Turn off" : "Turn on";
+  $("notifyBtn").disabled = false;
+  $("notifyTestBtn").style.display = on ? "" : "none";
+  $("notifyHint").style.display = blocked ? "" : "none";
+  if (blocked) $("notifyHint").textContent = "Allow notifications for this site in your browser settings, then reload.";
+  loadPrefs();
+}
+
+function unsupportedNotify() {
+  $("notifyState").textContent = "Not available here";
+  $("notifyHint").style.display = "";
+  $("notifyHint").textContent = INSTALLED
+    ? "This browser cannot receive notifications."
+    : "On iPhone, add this page to the Home Screen (Share → Add to Home Screen) and open it from there.";
+}
+
+async function serverKey() {
+  const r = await fetch("/api/push/key");
+  if (!r.ok) throw new Error("no key");
+  return (await r.json()).key;
+}
+
+async function sendSubscription(sub) {
+  await fetch("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sub),
+  });
+}
+
+async function initNotifications() {
+  if (DEMO) {
+    $("notifyState").textContent = "demo: no notifications";
+    return;
+  }
+  if (!PUSH_READY) {
+    unsupportedNotify();
+    return;
+  }
+  try {
+    swReg = await navigator.serviceWorker.register("/sw.js");
+    pushSub = await swReg.pushManager.getSubscription();
+    if (pushSub) {
+      // Re-send every load in case the server lost it, and start over if the
+      // identity it was bound to is gone — otherwise this reads On while
+      // nothing is delivered.
+      const key = await serverKey();
+      if (bytesToB64(pushSub.options.applicationServerKey) === key) {
+        await sendSubscription(pushSub);
+      } else {
+        await pushSub.unsubscribe();
+        pushSub = null;
+      }
+    }
+  } catch {
+    $("notifyState").textContent = "Could not start notifications";
+    return;
+  }
+  renderNotify();
+}
+
+async function enableNotifications() {
+  // First thing after the tap: iOS only prompts straight out of a user action.
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    renderNotify();
+    return;
+  }
+  pushSub = await swReg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: b64ToBytes(await serverKey()),
+  });
+  await sendSubscription(pushSub);
+}
+
+async function disableNotifications() {
+  const endpoint = pushSub.endpoint;
+  await pushSub.unsubscribe();
+  pushSub = null;
+  await fetch("/api/push/unsubscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
+$("notifyBtn").addEventListener("click", async () => {
+  $("notifyBtn").disabled = true;
+  try {
+    if (pushSub) await disableNotifications();
+    else await enableNotifications();
+  } catch (e) {
+    $("log").textContent = `notifications: ${e.message || e}`;
+  }
+  renderNotify();
+});
+
+$("notifyTestBtn").addEventListener("click", async () => {
+  $("notifyTestBtn").disabled = true;
+  try {
+    const r = await fetch("/api/push/test", { method: "POST" });
+    const { delivered } = await r.json();
+    $("log").textContent = delivered
+      ? `test sent to ${delivered} device${delivered === 1 ? "" : "s"}`
+      : "test reached no device";
+  } catch (e) {
+    $("log").textContent = `test failed: ${e.message || e}`;
+  }
+  $("notifyTestBtn").disabled = false;
+});
+
+initNotifications();
+loadDashboard();
+
+// --- Screens ----------------------------------------------------------------
+function showScreen(which) {
+  for (const name of ["mainScreen", "settingsScreen", "eventsScreen"]) {
+    $(name).style.display = name === which ? "" : "none";
+  }
+  $("log").textContent = "";
+  window.scrollTo(0, 0);
+  if (which === "settingsScreen") { refreshSettings(); refreshPrinter(); loadTheme(); renderDashSettings(); refreshAccount(); }
+  if (which === "eventsScreen") refreshEvents();
+}
+
+$("settingsBtn").addEventListener("click", () => showScreen("settingsScreen"));
+$("settingsBack").addEventListener("click", () => showScreen("mainScreen"));
+$("eventsBtn").addEventListener("click", () => showScreen("eventsScreen"));
+$("eventsBack").addEventListener("click", () => showScreen("mainScreen"));
+$("eventsRefresh").addEventListener("click", refreshEvents);
+
+// --- Appearance -------------------------------------------------------------
+// The theme is stored per device so it can be applied before first paint.
+function applyTheme(choice) {
+  if (choice === "light" || choice === "dark") document.documentElement.dataset.theme = choice;
+  else delete document.documentElement.dataset.theme;
+  try { localStorage.setItem("theme", choice); } catch {}
+}
+
+function loadTheme() {
+  let choice = "system";
+  try { choice = localStorage.getItem("theme") || "system"; } catch {}
+  $("setTheme").value = choice;
+}
+
+$("setTheme").addEventListener("change", () => applyTheme($("setTheme").value));
+
+// --- Dashboard --------------------------------------------------------------
+// Which sections are on the printer screen, and in what order. Stored on the
+// server.
+const DASH_SECTIONS = [
+  { id: "jobCard", label: "Job status" },
+  { id: "machineCard", label: "Machine status" },
+  { id: "controlsCard", label: "Controls" },
+  { id: "camCard", label: "Camera" },
+  { id: "dryCard", label: "Bed drying" },
+  { id: "nozzleCard", label: "Nozzle" },
+  { id: "amsCard", label: "Filament (AMS)" },
+];
+
+// The order in force. Anything absent is hidden; anything unknown is ignored,
+// so a section that goes away does not strand a stored layout.
+let dashOrder = DASH_SECTIONS.map(s => s.id);
+
+function applyDashboard() {
+  const main = $("mainScreen");
+  for (const { id } of DASH_SECTIONS) {
+    const el = $(id);
+    if (el) el.dataset.hidden = dashOrder.includes(id) ? "" : "yes";
+  }
+  // Re-appending in the chosen order is what orders them.
+  for (const id of dashOrder) {
+    const el = $(id);
+    if (el) main.appendChild(el);
+  }
+  refresh();
+}
+
+function renderDashSettings() {
+  const list = $("dashList");
+  list.innerHTML = "";
+  const known = new Map(DASH_SECTIONS.map(s => [s.id, s.label]));
+  // Chosen sections first, in their order, then the rest.
+  const rows = [...dashOrder.filter(id => known.has(id)),
+                ...DASH_SECTIONS.map(s => s.id).filter(id => !dashOrder.includes(id))];
+  rows.forEach((id, index) => {
+    const row = document.createElement("div");
+    row.className = "dashrow";
+
+    const label = document.createElement("label");
+    label.textContent = known.get(id);
+    label.htmlFor = `dash-${id}`;
+
+    const up = document.createElement("button");
+    up.className = "move";
+    up.textContent = "↑";
+    up.setAttribute("aria-label", `Move ${known.get(id)} up`);
+    up.disabled = index === 0;
+    up.addEventListener("click", () => moveDash(id, -1));
+
+    const down = document.createElement("button");
+    down.className = "move";
+    down.textContent = "↓";
+    down.setAttribute("aria-label", `Move ${known.get(id)} down`);
+    down.disabled = index === rows.length - 1;
+    down.addEventListener("click", () => moveDash(id, 1));
+
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = `dash-${id}`;
+    box.checked = dashOrder.includes(id);
+    box.addEventListener("change", () => {
+      dashOrder = box.checked
+        ? [...rows.filter(other => other === id || dashOrder.includes(other))]
+        : dashOrder.filter(other => other !== id);
+      saveDashboard();
+    });
+
+    row.append(label, up, down, box);
+    list.appendChild(row);
+  });
+}
+
+function moveDash(id, by) {
+  const order = [...dashOrder];
+  const at = order.indexOf(id);
+  if (at < 0) return;              // hidden sections do not move
+  const to = at + by;
+  if (to < 0 || to >= order.length) return;
+  [order[at], order[to]] = [order[to], order[at]];
+  dashOrder = order;
+  saveDashboard();
+}
+
+async function saveDashboard() {
+  renderDashSettings();
+  applyDashboard();
+  try {
+    const r = await fetch(`/api/settings/dashboard?text=${encodeURIComponent(dashOrder.join(","))}`, { method: "POST" });
+    $("settingsMsg").textContent = r.ok ? "Saved." : (await r.text()).trim();
+  } catch (e) {
+    $("settingsMsg").textContent = `could not save: ${e.message || e}`;
+  }
+}
+
+async function loadDashboard() {
+  if (DEMO) return;
+  try {
+    const r = await fetch("/api/settings");
+    if (!r.ok) return;
+    const stored = (await r.json()).dashboard;
+    if (typeof stored === "string" && stored !== "") dashOrder = stored.split(",");
+  } catch {
+    return;
+  }
+  applyDashboard();
+}
+
+// --- Events -----------------------------------------------------------------
+// Commands sent, printer reports, and notifications, with raw messages.
+const EVENT_FILTERS = {
+  command: "eventsCommands",
+  report: "eventsReports",
+  notification: "eventsNotifications",
+};
+
+let lastEvents = [];
+
+function eventWanted(e) {
+  const box = EVENT_FILTERS[e.kind];
+  return box ? $(box).checked : true;
+}
+
+function renderEvents() {
+  const list = $("eventsList");
+  list.innerHTML = "";
+  const shown = lastEvents.filter(eventWanted);
+  if (!shown.length) {
+    const empty = document.createElement("div");
+    empty.className = "event";
+    empty.textContent = lastEvents.length ? "Nothing of the kinds selected." : "Nothing yet.";
+    list.appendChild(empty);
+    return;
+  }
+  for (const e of shown) {
+    const row = document.createElement("div");
+    row.className = "event";
+
+    const head = document.createElement("div");
+    head.className = "head";
+    const what = document.createElement("span");
+    what.className = "what";
+    // Which printer, once there is more than one to tell apart.
+    const about = printerList.length > 1 && printerList.find(p => p.id === e.printer);
+    what.textContent = about ? `${about.name}: ${e.summary}` : e.summary;
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = new Date(e.at).toLocaleTimeString();
+    head.append(what, when);
+    row.appendChild(head);
+
+    // Only a command is waiting on the printer to answer; a report has already
+    // arrived, so saying it is unacknowledged would be nonsense.
+    if (e.kind !== "report") {
+      const ack = document.createElement("div");
+      if (e.error) {
+        ack.className = "ack bad";
+        ack.textContent = e.error;
+      } else if (e.acked) {
+        ack.className = "ack yes";
+        ack.textContent = `acknowledged ${new Date(e.acked).toLocaleTimeString()}`;
+      } else {
+        ack.className = "ack no";
+        ack.textContent = "waiting for acknowledgement";
+      }
+      row.appendChild(ack);
+    }
+
+    if (e.payload) {
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "raw";
+      const pre = document.createElement("pre");
+      pre.textContent = e.payload;
+      details.append(summary, pre);
+      row.appendChild(details);
+    }
+    list.appendChild(row);
+  }
+}
+
+async function refreshEvents() {
+  if (DEMO) return;
+  try {
+    const r = await fetch("/api/events");
+    if (!r.ok) return;
+    lastEvents = (await r.json()).events || [];
+  } catch {
+    return; // leave what is on screen
+  }
+  renderEvents();
+}
+
+for (const id of Object.values(EVENT_FILTERS)) {
+  $(id).addEventListener("change", renderEvents);
+}
+
+// --- Printers ---------------------------------------------------------------
+// The list comes from /api/printers; how each is doing comes from the live
+// socket's printers message. Add and Edit share one form. Access codes are
+// never sent back, so on an edit the field starts blank and blank means
+// unchanged. Saving checks the printer answers first, unless the details are
+// unchanged (a rename) or Save anyway is pressed.
+let printerRows = [];
+let editingPrinter = null; // the id being edited, or null when adding
+
+async function refreshPrinter() {
+  if (DEMO) {
+    printerRows = printerList.map(p => ({ ...p, ip: `192.0.2.${10 + p.id}`, serial: `01P00A00000000${p.id}`, accessCodeSet: true }));
+    renderPrinterList();
+    return;
+  }
+  try {
+    const r = await fetch("/api/printers");
+    if (!r.ok) return;
+    printerRows = await r.json();
+  } catch {
+    return; // leave whatever is on screen
+  }
+  renderPrinterList();
+}
+
+function renderPrinterList() {
+  const list = $("printerList");
+  list.innerHTML = "";
+  if (!printerRows.length) {
+    const empty = document.createElement("div");
+    empty.className = "notifywhat";
+    empty.textContent = "No printer set up yet.";
+    list.appendChild(empty);
+  }
+  for (const p of printerRows) {
+    const live = printerList.find(x => x.id === p.id);
+    const row = document.createElement("div");
+    row.className = "printeritem";
+    const who = document.createElement("div");
+    who.className = "who";
+    const name = document.createElement("div");
+    name.textContent = p.name;
+    const detail = document.createElement("div");
+    const state = !live ? "" : live.connected ? " · connected" : ` · ${live.problem || "connecting…"}`;
+    detail.textContent = p.ip + state;
+    if (live && !live.connected) detail.classList.add("bad");
+    who.append(name, detail);
+    const edit = document.createElement("button");
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => openPrinterForm(p));
+    const remove = document.createElement("button");
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => removePrinter(p));
+    row.append(who, edit, remove);
+    list.appendChild(row);
+  }
+}
+
+function openPrinterForm(p) {
+  editingPrinter = p ? p.id : null;
+  $("setPrinterName").value = p ? p.name : "";
+  $("setPrinterIP").value = p ? p.ip : "";
+  $("setPrinterSerial").value = p ? p.serial : "";
+  $("setPrinterCode").value = "";
+  $("setPrinterCode").placeholder = p ? "unchanged" : "required";
+  $("printerSave").textContent = p ? "Save" : "Add printer";
+  $("printerSaveAnyway").style.display = "none";
+  $("printerMsg").className = "notifywhat";
+  $("printerMsg").textContent = "";
+  $("printerForm").style.display = "";
+  $("printerAddBtn").style.display = "none";
+  $("setPrinterName").focus();
+}
+
+function closePrinterForm() {
+  editingPrinter = null;
+  $("printerForm").style.display = "none";
+  $("printerAddBtn").style.display = "";
+}
+
+async function savePrinter(skipCheck) {
+  $("printerSave").disabled = true;
+  $("printerSaveAnyway").style.display = "none";
+  $("printerMsg").className = "notifywhat";
+  const editing = editingPrinter;
+  const old = printerRows.find(p => p.id === editing);
+  const detailsChanged = !old || $("setPrinterCode").value !== ""
+    || $("setPrinterIP").value.trim() !== old.ip || $("setPrinterSerial").value.trim() !== old.serial;
+  $("printerMsg").textContent = skipCheck || !detailsChanged ? "Saving…" : "Checking the printer answers…";
+  const body = {
+    name: $("setPrinterName").value.trim(),
+    ip: $("setPrinterIP").value.trim(),
+    serial: $("setPrinterSerial").value.trim(),
+    accessCode: $("setPrinterCode").value,
+    skipCheck,
+  };
+  try {
+    if (DEMO) throw new Error("not in the demo");
+    const r = await fetch(editing == null ? "/api/printers" : `/api/printers/${editing}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) {
+      if (editing == null) selectPrinter((await r.json()).id);
+      closePrinterForm();
+      await refreshPrinter();
+      $("printerMsg").textContent = skipCheck || !detailsChanged ? `Saved ${body.name}.` : `Connected to ${body.name} and saved.`;
+    } else {
+      $("printerMsg").className = "notifywhat bad";
+      $("printerMsg").textContent = (await r.text()).trim();
+      // Only a printer that didn't answer can be saved regardless.
+      if (r.status === 422) $("printerSaveAnyway").style.display = "";
+    }
+  } catch (e) {
+    $("printerMsg").className = "notifywhat bad";
+    $("printerMsg").textContent = `could not save: ${e.message || e}`;
+  }
+  $("printerSave").disabled = false;
+}
+
+async function removePrinter(p) {
+  if (!confirm(`Remove ${p.name}? Its camera history is deleted too.`)) return;
+  if (DEMO) return;
+  try {
+    const r = await fetch(`/api/printers/${p.id}`, { method: "DELETE" });
+    $("printerMsg").className = r.ok ? "notifywhat" : "notifywhat bad";
+    $("printerMsg").textContent = r.ok ? `Removed ${p.name}.` : (await r.text()).trim();
+  } catch (e) {
+    $("printerMsg").textContent = `could not remove: ${e.message || e}`;
+  }
+  closePrinterForm();
+  await refreshPrinter();
+}
+
+$("printerAddBtn").addEventListener("click", () => openPrinterForm(null));
+$("printerCancel").addEventListener("click", () => { closePrinterForm(); $("printerMsg").textContent = ""; });
+$("printerSave").addEventListener("click", () => savePrinter(false));
+$("printerSaveAnyway").addEventListener("click", () => savePrinter(true));
+
+// --- Settings ---------------------------------------------------------------
+// Each field edits one setting; Save sends the ones that changed. The server
+// validates, and a refused field is put back to the stored value.
+const SETTINGS = [
+  { id: "setCameraStorage", name: "camera-storage", perUnit: 1024 },
+  { id: "setBedOff", name: "bed-off-after", perUnit: 3600 },
+  { id: "setNozzleOff", name: "nozzle-off-after", perUnit: 60 },
+  { id: "setLampOff", name: "lamp-off-after", perUnit: 3600 },
+  { id: "setSessionLength", name: "session-length", perUnit: 86400 },
+  { id: "setActivityLimit", name: "activity-limit", perUnit: 1 },
+];
+
+// What the server last told us, so Save knows what actually changed and a
+// refusal can put the field back to what is really stored.
+let savedSettings = {};
+
+function settingsDirty() {
+  return SETTINGS.some(s => Math.round(Number($(s.id).value) * s.perUnit) !== savedSettings[s.name]);
+}
+
+function markSettingsDirty() {
+  $("settingsSave").disabled = !settingsDirty();
+}
+
+async function refreshSettings() {
+  if (DEMO) return;
+  try {
+    const r = await fetch("/api/settings");
+    if (!r.ok) return;
+    savedSettings = await r.json();
+  } catch {
+    return; // leave whatever is on screen
+  }
+  // Up to two decimals, for camera history in fractions of a GB.
+  for (const s of SETTINGS) $(s.id).value = +(savedSettings[s.name] / s.perUnit).toFixed(2);
+  $("settingsMsg").textContent = "";
+  markSettingsDirty();
+}
+
+for (const s of SETTINGS) $(s.id).addEventListener("input", markSettingsDirty);
+
+$("settingsSave").addEventListener("click", async () => {
+  $("settingsSave").disabled = true;
+  $("settingsMsg").textContent = "Saving…";
+  const failures = [];
+  for (const s of SETTINGS) {
+    const value = Math.round(Number($(s.id).value) * s.perUnit);
+    if (value === savedSettings[s.name]) continue;
+    try {
+      const r = await fetch(`/api/settings/${s.name}?value=${value}`, { method: "POST" });
+      if (!r.ok) failures.push((await r.text()).trim());
+    } catch (e) {
+      failures.push(e.message || String(e));
+    }
+  }
+  // Reload from the server so refused fields show the stored value.
+  await refreshSettings();
+  $("settingsMsg").textContent = failures.length ? failures.join(" · ") : "Saved.";
+});
+
+</script>
+</body>
+</html>
