@@ -9,16 +9,10 @@ use rusqlite::params;
 
 use crate::db::Db;
 
-// Names of the settings, as the page sends them.
-pub const CAMERA_STORAGE: &str = "camera-storage";
-pub const BED_OFF_AFTER: &str = "bed-off-after";
-pub const NOZZLE_OFF_AFTER: &str = "nozzle-off-after";
-pub const LAMP_OFF_AFTER: &str = "lamp-off-after";
-pub const ACTIVITY_LIMIT: &str = "activity-limit";
-pub const SESSION_LENGTH: &str = "session-length";
-
-/// The printer screen's sections, in order. Anything absent is hidden.
-pub const DASHBOARD: &str = "dashboard";
+pub use bambuspa_api::settings::{
+    ACTIVITY_LIMIT, BED_OFF_AFTER, CAMERA_STORAGE, DASHBOARD, LAMP_OFF_AFTER, NOZZLE_OFF_AFTER,
+    SESSION_LENGTH,
+};
 
 const TEXTS: &[&str] = &[DASHBOARD];
 

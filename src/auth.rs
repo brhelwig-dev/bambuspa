@@ -10,6 +10,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use bambuspa_api::{Logout, Me};
 use openidconnect::core::{
     CoreAuthDisplay, CoreAuthenticationFlow, CoreClaimName, CoreClaimType, CoreClient,
     CoreClientAuthMethod, CoreGrantType, CoreJsonWebKey, CoreJweContentEncryptionAlgorithm,
@@ -22,7 +23,6 @@ use openidconnect::{
 };
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::clock::{self, Clock};
 use crate::db::Db;
@@ -766,7 +766,9 @@ async fn logout(State(auth): State<Authenticator>, headers: HeaderMap) -> Respon
     {
         tracing::warn!("auth: ending a session: {err}");
     }
-    let mut resp = json_reply(&json!({"then": auth.inner.end_session.as_deref().unwrap_or("/")}));
+    let mut resp = json_reply(&Logout {
+        then: auth.inner.end_session.as_deref().unwrap_or("/").to_string(),
+    });
     resp.headers_mut()
         .append(header::SET_COOKIE, auth.session_cookie("", 1));
     resp
@@ -775,7 +777,10 @@ async fn logout(State(auth): State<Authenticator>, headers: HeaderMap) -> Respon
 /// Who is logged in, so the page can show it and offer to log out.
 async fn me(State(auth): State<Authenticator>, headers: HeaderMap) -> Response {
     match auth.session(&headers) {
-        Some(s) => json_reply(&json!({"name": s.name, "subject": s.subject})),
+        Some(s) => json_reply(&Me {
+            name: s.name,
+            subject: s.subject,
+        }),
         None => text(StatusCode::UNAUTHORIZED, "not logged in"),
     }
 }

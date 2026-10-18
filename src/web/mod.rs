@@ -24,8 +24,9 @@ use axum::extract::State;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use bambuspa_api::{Fans, PrintActions, Status};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 pub use csrf::CrossOrigin;
 pub use live::Feed;
@@ -134,7 +135,7 @@ async fn status(State(app): State<App>, query: Query) -> Response {
 /// What the page shows about a printer, from its merged state and its timers,
 /// at `now` (unix milliseconds). With no printer, the same shape with nothing
 /// known.
-pub fn status_of(printer: Option<&Printer>, now: i64) -> Value {
+pub fn status_of(printer: Option<&Printer>, now: i64) -> Status {
     let snap = printer.map(|p| p.cache.snapshot()).unwrap_or_default();
     let snap: &Snapshot = &snap;
     let (f, connected) = (&snap.fields, snap.connected);
@@ -142,35 +143,39 @@ pub fn status_of(printer: Option<&Printer>, now: i64) -> Value {
     let get = |name: &str| f.get(name).cloned().unwrap_or(Value::Null);
     let remaining = |name| printer.and_then(|p| p.timers.remaining(name, now));
     let allowed = |action| p1s::print_action_allowed(connected, state, action).is_ok();
-    json!({
-        "printer": printer.map(|p| p.id),
-        "connected": connected,
-        "configured": printer.is_some(),
-        "problem": snap.problem.as_deref(),
-        "gcodeState": state,
-        "actionsAllowed": p1s::action_allowed(connected, state).is_ok(),
-        "bedTemp": get("bed_temper"),
-        "bedTarget": get("bed_target_temper"),
-        "nozzleTemp": get("nozzle_temper"),
-        "nozzleTarget": get("nozzle_target_temper"),
-        "progress": get("mc_percent"),
-        "jobName": p1s::job_name(f),
-        "layerNum": get("layer_num"),
-        "totalLayerNum": get("total_layer_num"),
-        "remainingMinutes": get("mc_remaining_time"),
-        "chamberLight": p1s::chamber_light(f),
-        "fans": {
-            "cooling": get("cooling_fan_speed"),
-            "aux": get("big_fan1_speed"),
-            "chamber": get("big_fan2_speed"),
+    Status {
+        printer: printer.map(|p| p.id),
+        connected,
+        configured: printer.is_some(),
+        problem: snap.problem.as_deref().map(str::to_string),
+        gcode_state: state.to_string(),
+        actions_allowed: p1s::action_allowed(connected, state).is_ok(),
+        bed_temp: get("bed_temper"),
+        bed_target: get("bed_target_temper"),
+        nozzle_temp: get("nozzle_temper"),
+        nozzle_target: get("nozzle_target_temper"),
+        progress: get("mc_percent"),
+        job_name: p1s::job_name(f),
+        layer_num: get("layer_num"),
+        total_layer_num: get("total_layer_num"),
+        remaining_minutes: get("mc_remaining_time"),
+        chamber_light: p1s::chamber_light(f),
+        fans: Fans {
+            cooling: get("cooling_fan_speed"),
+            aux: get("big_fan1_speed"),
+            chamber: get("big_fan2_speed"),
         },
-        "ams": get("ams"),
-        "hms": p1s::hms_errors(f),
-        "bedOffIn": remaining(timers::BED_OFF),
-        "nozzleOffIn": remaining(timers::NOZZLE_OFF),
-        "lampOffIn": remaining(timers::LAMP_OFF),
-        "printActions": {"pause": allowed("pause"), "resume": allowed("resume"), "stop": allowed("stop")},
-    })
+        ams: get("ams"),
+        hms: p1s::hms_errors(f),
+        bed_off_in: remaining(timers::BED_OFF),
+        nozzle_off_in: remaining(timers::NOZZLE_OFF),
+        lamp_off_in: remaining(timers::LAMP_OFF),
+        print_actions: PrintActions {
+            pause: allowed("pause"),
+            resume: allowed("resume"),
+            stop: allowed("stop"),
+        },
+    }
 }
 
 #[cfg(test)]

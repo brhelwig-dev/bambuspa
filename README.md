@@ -177,8 +177,8 @@ sensitive. The page is never sent the code back, only whether one is set.
 ## Development
 
 ```sh
-cargo test                      # everything, against a fake printer
-cargo clippy --all-targets      # lints
+cargo test --workspace                      # everything, against a fake printer
+cargo clippy --workspace --all-targets      # lints
 cargo run --example fake_printer
 ```
 

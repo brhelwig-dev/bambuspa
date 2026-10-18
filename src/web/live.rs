@@ -24,7 +24,7 @@ use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
-use serde_json::{Value, json};
+use bambuspa_api::{ClientMessage, Range, ServerMessage};
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
 
@@ -57,8 +57,12 @@ impl Default for Feed {
     }
 }
 
-fn publish(tx: &watch::Sender<Arc<str>>, msg: Value) {
-    let msg: Arc<str> = msg.to_string().into();
+fn encode(msg: &ServerMessage) -> Arc<str> {
+    serde_json::to_string(msg).unwrap_or_default().into()
+}
+
+fn publish(tx: &watch::Sender<Arc<str>>, msg: &ServerMessage) {
+    let msg = encode(msg);
     tx.send_if_modified(|current| {
         let changed = *current != msg;
         if changed {
@@ -68,31 +72,24 @@ fn publish(tx: &watch::Sender<Arc<str>>, msg: Value) {
     });
 }
 
-fn tagged(kind: &str, mut v: Value) -> Value {
-    if let Value::Object(map) = &mut v {
-        map.insert("type".into(), kind.into());
-    }
-    v
-}
-
 impl Feed {
     fn status(&self, printer: &Printer, now: i64) {
         publish(
             &self.status,
-            tagged("status", super::status_of(Some(printer), now)),
+            &ServerMessage::Status(super::status_of(Some(printer), now)),
         );
     }
 
     fn range(&self, printer: &Printer) {
         match super::camera::range_of(printer) {
-            Ok(range) => publish(&self.range, tagged("range", range)),
+            Ok(range) => publish(&self.range, &ServerMessage::Range(range)),
             Err(err) => tracing::warn!("live: camera range: {err}"),
         }
     }
 
     fn jobs(&self, printer: &Printer) {
         match printer.store.recent_jobs() {
-            Ok(jobs) => publish(&self.jobs, json!({"type": "jobs", "jobs": jobs})),
+            Ok(jobs) => publish(&self.jobs, &ServerMessage::Jobs { jobs }),
             Err(err) => tracing::warn!("live: jobs: {err}"),
         }
     }
@@ -199,11 +196,11 @@ impl Watching {
                 }
             }
             None => {
-                let fixed = |v: Value| watch::Sender::new(Arc::from(v.to_string())).subscribe();
+                let fixed = |msg: ServerMessage| watch::Sender::new(encode(&msg)).subscribe();
                 Watching {
-                    status: fixed(tagged("status", super::status_of(None, now))),
-                    range: fixed(json!({"type": "range", "oldest": null, "newest": null})),
-                    jobs: fixed(json!({"type": "jobs", "jobs": []})),
+                    status: fixed(ServerMessage::Status(super::status_of(None, now))),
+                    range: fixed(ServerMessage::Range(Range::default())),
+                    jobs: fixed(ServerMessage::Jobs { jobs: Vec::new() }),
                     frames: broadcast::Sender::new(1).subscribe(),
                     printer: None,
                 }
@@ -223,21 +220,6 @@ impl Watching {
             .filter(|msg| !msg.is_empty())
             .map(|msg| Message::Text(msg.as_ref().into()))
             .collect()
-    }
-}
-
-/// What a page asked for.
-enum Request {
-    Follow(bool),
-    Select(i64),
-}
-
-fn request(msg: &str) -> Option<Request> {
-    let v: Value = serde_json::from_str(msg).ok()?;
-    match v.get("type")?.as_str()? {
-        "follow" => Some(Request::Follow(v.get("on")?.as_bool()?)),
-        "select" => Some(Request::Select(v.get("printer")?.as_i64()?)),
-        _ => None,
     }
 }
 
@@ -288,8 +270,8 @@ async fn client(app: App, mut socket: WebSocket) {
                 Err(broadcast::error::RecvError::Closed) => continue,
             },
             incoming = socket.recv() => match incoming {
-                Some(Ok(Message::Text(msg))) => match request(&msg) {
-                    Some(Request::Select(id)) => {
+                Some(Ok(Message::Text(msg))) => match serde_json::from_str(&msg).ok() {
+                    Some(ClientMessage::Select { printer: id }) => {
                         let Some(printer) = app.printers.get(id) else { continue };
                         watching = Watching::new(Some(printer), (app.clock)());
                         let mut msgs = watching.current();
@@ -301,7 +283,7 @@ async fn client(app: App, mut socket: WebSocket) {
                         }
                         continue;
                     }
-                    Some(Request::Follow(on)) => {
+                    Some(ClientMessage::Follow { on }) => {
                         following = on;
                         if !on {
                             continue;

@@ -4,39 +4,26 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use bambuspa_api::{
+    EndpointRequest, Preferences, PreferencesRequest, PushKey, SubscribeRequest, TestResult,
+};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
-use serde::Deserialize;
-use serde_json::json;
 
 use super::{App, Query, json_reply, read_json, text};
 use crate::push::{KINDS, Notification};
 
 pub async fn key(State(app): State<App>) -> Response {
     match app.sender.count() {
-        Ok(count) => json_reply(&json!({"key": app.sender.public_key(), "subscribed": count})),
+        Ok(subscribed) => json_reply(&PushKey {
+            key: app.sender.public_key(),
+            subscribed,
+        }),
         Err(_) => text(
             StatusCode::INTERNAL_SERVER_ERROR,
             "cannot read subscriptions",
         ),
     }
-}
-
-/// What a browser's PushSubscription serializes to.
-#[derive(Deserialize)]
-struct SubscribeRequest {
-    #[serde(default)]
-    endpoint: String,
-    #[serde(default)]
-    keys: Keys,
-}
-
-#[derive(Deserialize, Default)]
-struct Keys {
-    #[serde(default)]
-    p256dh: String,
-    #[serde(default)]
-    auth: String,
 }
 
 pub async fn subscribe(State(app): State<App>, body: Bytes) -> Response {
@@ -54,12 +41,6 @@ pub async fn subscribe(State(app): State<App>, body: Bytes) -> Response {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(err) => text(StatusCode::BAD_REQUEST, err),
     }
-}
-
-#[derive(Deserialize)]
-struct EndpointRequest {
-    #[serde(default)]
-    endpoint: String,
 }
 
 pub async fn unsubscribe(State(app): State<App>, body: Bytes) -> Response {
@@ -85,7 +66,7 @@ pub async fn test(State(app): State<App>) -> Response {
         ))
         .await
     {
-        Ok(delivered) => json_reply(&json!({"delivered": delivered})),
+        Ok(delivered) => json_reply(&TestResult { delivered }),
         Err(err) => text(StatusCode::INTERNAL_SERVER_ERROR, err),
     }
 }
@@ -98,27 +79,17 @@ pub async fn preferences(State(app): State<App>, query: Query) -> Response {
         return text(StatusCode::BAD_REQUEST, "no endpoint");
     }
     match app.sender.find(endpoint) {
-        Ok(Some(sub)) => json_reply(&json!({
-            "available": KINDS,
-            // A device that has never chosen is told about everything.
-            "kinds": sub.kinds.unwrap_or_else(|| KINDS.iter().map(|k| k.to_string()).collect()),
-            "bedInterval": sub.bed_interval,
-        })),
+        Ok(Some(sub)) => {
+            let all: Vec<String> = KINDS.iter().map(|k| k.to_string()).collect();
+            json_reply(&Preferences {
+                kinds: sub.kinds.unwrap_or_else(|| all.clone()),
+                available: all,
+                bed_interval: sub.bed_interval,
+            })
+        }
         Ok(None) => text(StatusCode::NOT_FOUND, "not subscribed"),
         Err(err) => text(StatusCode::INTERNAL_SERVER_ERROR, err),
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PreferencesRequest {
-    #[serde(default)]
-    endpoint: String,
-    #[serde(default)]
-    kinds: Option<Vec<String>>,
-    /// Seconds; 0 is never.
-    #[serde(default)]
-    bed_interval: i64,
 }
 
 pub async fn set_preferences(State(app): State<App>, body: Bytes) -> Response {

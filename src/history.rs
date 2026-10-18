@@ -1,21 +1,12 @@
 //! Recorded camera frames and print-job boundaries, so the app can serve a
 //! scrollback buffer and per-print timelapses.
 
+use bambuspa_api::Job;
 use rusqlite::{OptionalExtension, params};
 
 use crate::capacity::{Item, Source};
 use crate::db::Db;
 use crate::p1s;
-
-/// One print's recorded time range, in unix seconds. `end` is None while it is
-/// still in progress.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-pub struct Job {
-    pub id: i64,
-    pub name: String,
-    pub start: i64,
-    pub end: Option<i64>,
-}
 
 /// Camera frames and job boundaries. `new` reads and writes as printer 0,
 /// which only tests use; `for_printer` gives one printer's. Making room

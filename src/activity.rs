@@ -4,8 +4,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use bambuspa_api::Event;
 use rusqlite::params;
-use serde::Serialize;
 
 use crate::capacity::{Item, Source};
 use crate::clock::Clock;
@@ -32,25 +32,32 @@ const LOW_WATER: f64 = 0.9;
 const SIZE: &str = "octet_length(summary) + octet_length(payload) + octet_length(error) + 64";
 
 /// One logged event, as the Events screen is sent it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub id: i64,
-    #[serde(serialize_with = "rfc3339")]
     pub at: i64,
     pub kind: String,
     pub summary: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub payload: String,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "rfc3339_opt"
-    )]
     pub acked: Option<i64>,
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
     /// The printer it was about, if it was about one.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub printer: Option<i64>,
+}
+
+impl From<&Entry> for Event {
+    fn from(e: &Entry) -> Event {
+        Event {
+            id: e.id,
+            at: to_rfc3339(e.at),
+            kind: e.kind.clone(),
+            summary: e.summary.clone(),
+            payload: e.payload.clone(),
+            acked: e.acked.map(to_rfc3339),
+            error: e.error.clone(),
+            printer: e.printer,
+        }
+    }
 }
 
 fn to_rfc3339(ms: i64) -> String {
@@ -60,17 +67,6 @@ fn to_rfc3339(ms: i64) -> String {
         .single()
         .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, false))
         .unwrap_or_default()
-}
-
-fn rfc3339<S: serde::Serializer>(ms: &i64, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&to_rfc3339(*ms))
-}
-
-fn rfc3339_opt<S: serde::Serializer>(ms: &Option<i64>, s: S) -> Result<S::Ok, S::Error> {
-    match ms {
-        Some(ms) => rfc3339(ms, s),
-        None => s.serialize_none(),
-    }
 }
 
 /// Records what happened, in the database, bounded by a size in bytes.
@@ -335,7 +331,7 @@ mod tests {
     fn serialises_like_the_page_expects() {
         let (log, _, _) = log(1 << 20);
         log.record(NOTIFICATION, "x", "");
-        let json = serde_json::to_value(&log.entries(1)[0]).unwrap();
+        let json = serde_json::to_value(Event::from(&log.entries(1)[0])).unwrap();
         let obj = json.as_object().unwrap();
         assert!(obj.contains_key("at") && obj["at"].as_str().unwrap().starts_with("20"));
         assert!(

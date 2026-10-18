@@ -4,10 +4,12 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::Fields;
+
+pub use bambuspa_api::HmsEntry;
 
 /// The community English message table (ha-bambulab, MIT), filtered to the
 /// P1S/P1P. Not verified against a real printer payload. "hms" is keyed by
@@ -50,13 +52,6 @@ pub fn format_hms_code(attr: i64, code: i64) -> String {
 pub fn format_print_error(code: i64) -> String {
     let hex = format!("{code:08X}");
     format!("{}-{}", &hex[0..4], &hex[4..8])
-}
-
-/// One translated printer error.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct HmsEntry {
-    pub code: String,
-    pub message: String,
 }
 
 fn entry(code: String, table: &HashMap<String, String>) -> HmsEntry {

@@ -5,8 +5,9 @@
 
 use std::sync::{Arc, RwLock};
 
+use bambuspa_api::{PrinterSummary, ServerMessage};
 use rusqlite::params;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::{Notify, watch};
 use tokio::task::AbortHandle;
 
@@ -308,26 +309,27 @@ impl Printers {
 
     /// Recomputes the switcher's summary, telling watchers only if it changed.
     pub fn refresh_summary(&self) {
-        let printers: Vec<Value> = self
+        let printers = self
             .list()
             .iter()
             .map(|p| {
                 let snap = p.cache.snapshot();
                 let state = p1s::gcode_state(&snap.fields);
-                json!({
-                    "id": p.id,
-                    "name": p.name(),
-                    "connected": snap.connected,
-                    "problem": snap.problem.as_deref(),
-                    "gcodeState": state,
-                    "progress": p1s::job_active(state)
+                PrinterSummary {
+                    id: p.id,
+                    name: p.name(),
+                    connected: snap.connected,
+                    problem: snap.problem.as_deref().map(str::to_string),
+                    gcode_state: state.to_string(),
+                    progress: p1s::job_active(state)
                         .then(|| snap.fields.get("mc_percent").cloned())
-                        .flatten(),
-                })
+                        .flatten()
+                        .unwrap_or(Value::Null),
+                }
             })
             .collect();
-        let msg: Arc<str> = json!({"type": "printers", "printers": printers})
-            .to_string()
+        let msg: Arc<str> = serde_json::to_string(&ServerMessage::Printers { printers })
+            .unwrap_or_default()
             .into();
         self.inner.summary.send_if_modified(|current| {
             let changed = *current != msg;
