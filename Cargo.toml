@@ -7,7 +7,7 @@ publish = false
 description = "A web bridge for controlling a Bambu Lab P1S from a phone browser"
 
 [workspace]
-members = ["api"]
+members = ["api", "web"]
 
 [dependencies]
 aes-gcm = "0.11"

@@ -1,0 +1,40 @@
+[package]
+name = "bambuspa-web"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+bambuspa-api = { path = "../api" }
+base64 = "0.23"
+dioxus = { version = "=0.7.10", features = ["web"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+gloo-net = { version = "0.7", default-features = false, features = ["http", "json", "websocket"] }
+gloo-timers = { version = "0.4", features = ["futures"] }
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+  "Blob",
+  "BlobPropertyBag",
+  "Document",
+  "Element",
+  "HtmlElement",
+  "Location",
+  "MediaQueryList",
+  "Navigator",
+  "Notification",
+  "NotificationPermission",
+  "PushManager",
+  "PushSubscription",
+  "PushSubscriptionOptions",
+  "PushSubscriptionOptionsInit",
+  "ServiceWorkerContainer",
+  "ServiceWorkerRegistration",
+  "Storage",
+  "Url",
+  "Window",
+] }

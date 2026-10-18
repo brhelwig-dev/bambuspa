@@ -814,6 +814,7 @@ async fn the_page_and_its_files_are_served() {
     assert!(page.text().contains("<script>"));
     for (path, kind) in [
         ("/sw.js", "text/javascript; charset=utf-8"),
+        ("/style.css", "text/css; charset=utf-8"),
         ("/manifest.webmanifest", "application/manifest+json"),
         ("/icon-192.png", "image/png"),
         ("/icon-512.png", "image/png"),
