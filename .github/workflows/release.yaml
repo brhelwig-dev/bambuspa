@@ -15,6 +15,7 @@ concurrency:
   group: release
 
 permissions:
+  actions: read
   contents: write
   packages: write
 
@@ -79,6 +80,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: web
+          path: web/dist
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
       # The arm64 Windows image may lack rustup, and ring builds its code for
       # that target with clang.
       - if: matrix.platform == 'windows/arm64'

@@ -91,9 +91,14 @@ under Printers on the Settings page, not in the environment.
 ## Running
 
 From source, with [Rust](https://rustup.rs) installed (the version is pinned in
-`rust-toolchain.toml` and fetched automatically):
+`rust-toolchain.toml` and fetched automatically). The page is a
+[Dioxus](https://dioxuslabs.com) app compiled to WebAssembly and built into
+the binary, so build it first with the Dioxus CLI:
 
 ```sh
+rustup target add wasm32-unknown-unknown
+cargo install dioxus-cli@0.7.10 --locked
+(cd web && dx bundle --platform web --release --out-dir dist)
 AUTH_DISABLED=true cargo run --release
 ```
 
@@ -177,10 +182,18 @@ sensitive. The page is never sent the code back, only whether one is set.
 ## Development
 
 ```sh
-cargo test --workspace                      # everything, against a fake printer
-cargo clippy --workspace --all-targets      # lints
+cargo test --workspace --exclude bambuspa-web     # everything, against a fake printer
+cargo clippy --workspace --exclude bambuspa-web --all-targets
+cargo clippy -p bambuspa-web --target wasm32-unknown-unknown
 cargo run --example fake_printer
 ```
+
+The server embeds `web/dist/public`, so build the page (see Running) before any
+of these. A debug build reads those files from disk, so after rebuilding the
+page a reload shows it without restarting the server.
+
+The workspace has three crates: the server at the root, `api` with the JSON
+shapes the server and the page share, and `web`, the page.
 
 The fake printer serves the printer's MQTT and camera ports on 127.0.0.1 with
 a print under way. Run the app alongside it (`AUTH_DISABLED=true cargo run`) and

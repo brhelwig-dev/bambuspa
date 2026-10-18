@@ -11,6 +11,8 @@ updates:
       interval: monthly
     cooldown:
       default-days: 14
+    ignore:
+      - dependency-name: dioxus
   - package-ecosystem: github-actions
     directory: /
     schedule:

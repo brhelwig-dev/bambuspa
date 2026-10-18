@@ -159,6 +159,10 @@ async function stubStatus(page, status, printers = null) {
   });
 }
 
+async function rendered(page) {
+  await page.waitForSelector("#settingsBtn", { timeout: 15000 }).catch(() => {});
+}
+
 async function main() {
   await mkdir(OUT, { recursive: true });
   const browser = await chromium.launch();
@@ -214,6 +218,7 @@ async function main() {
     // the camera card shows its genuine empty state rather than a staged one.
     await stubStatus(page, state.status);
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     await page.waitForTimeout(400);
     const file = `${OUT}/${state.name}.png`;
     await page.screenshot({ path: file, fullPage: true });
@@ -236,6 +241,7 @@ async function main() {
     await page.addInitScript(notificationSupport(shot.permission, shot.subscribed));
     await stubStatus(page, { ...idle, ams });
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     if (!await page.locator("#settingsBtn").count()) {
       console.log("no settings screen on this branch, skipping");
       await page.close();
@@ -271,6 +277,7 @@ async function main() {
     await stubStatus(page, { ...idle, ams });
     await page.route("**/api/events", route => route.fulfill({ json: { events } }));
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     if (await page.locator("#eventsBtn").count()) {
       await page.click("#eventsBtn");
       // Open the raw view on the waiting command, since being able to read the
@@ -299,6 +306,7 @@ async function main() {
               dashboard: "machineCard,jobCard,controlsCard" },
     }));
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     await page.waitForTimeout(600);
     const file = `${OUT}/12-light-rearranged.png`;
     await page.screenshot({ path: file, fullPage: true });
@@ -318,6 +326,7 @@ async function main() {
       { id: 2, name: "Office", connected: false, problem: "No answer from 192.0.2.11.", gcodeState: "unknown", progress: null },
     ]);
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     await page.waitForTimeout(600);
     const file = `${OUT}/13-two-printers.png`;
     await page.screenshot({ path: file });

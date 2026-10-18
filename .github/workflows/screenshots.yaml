@@ -60,6 +60,9 @@ jobs:
           }
 
           build() { # source dir, output binary
+            if [ -f "$1/web/Cargo.toml" ]; then
+              .github/scripts/build-web.sh "$1" || return 1
+            fi
             (cd "$1" && cargo build --locked --target-dir "$GITHUB_WORKSPACE/target" && cp "$GITHUB_WORKSPACE/target/debug/bambuspa" "$2")
           }
 
