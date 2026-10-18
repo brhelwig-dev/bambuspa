@@ -1,5 +1,3 @@
-//! Push subscriptions and each device's notification preferences.
-
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -53,8 +51,6 @@ pub async fn unsubscribe(State(app): State<App>, body: Bytes) -> Response {
     }
 }
 
-/// Proves the path — server, push service, phone — without waiting on the
-/// printer. Goes to every device whatever it chose.
 pub async fn test(State(app): State<App>) -> Response {
     match app
         .sender
@@ -71,8 +67,6 @@ pub async fn test(State(app): State<App>) -> Response {
     }
 }
 
-/// What one device asked for. The endpoint identifies the device, and only
-/// that device knows its own.
 pub async fn preferences(State(app): State<App>, query: Query) -> Response {
     let endpoint = query.get("endpoint").map(String::as_str).unwrap_or("");
     if endpoint.is_empty() {

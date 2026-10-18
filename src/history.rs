@@ -1,6 +1,3 @@
-//! Recorded camera frames and print-job boundaries, so the app can serve a
-//! scrollback buffer and per-print timelapses.
-
 use bambuspa_api::Job;
 use rusqlite::{OptionalExtension, params};
 
@@ -8,9 +5,6 @@ use crate::capacity::{Item, Source};
 use crate::db::Db;
 use crate::p1s;
 
-/// Camera frames and job boundaries. `new` reads and writes as printer 0,
-/// which only tests use; `for_printer` gives one printer's. Making room
-/// (`Source`) and forgetting jobs work across every printer.
 #[derive(Clone)]
 pub struct Store {
     db: Db,
@@ -29,7 +23,6 @@ impl Store {
         }
     }
 
-    /// Deletes this printer's footage and jobs, for a printer that is removed.
     pub fn delete_all(&self) -> rusqlite::Result<()> {
         let conn = self.db.lock();
         conn.execute("DELETE FROM frames WHERE printer_id = ?", [self.printer])?;
@@ -37,7 +30,6 @@ impl Store {
         Ok(())
     }
 
-    /// Records one camera frame at a unix-second timestamp.
     pub fn insert_frame(&self, ts: i64, jpeg: &[u8]) -> rusqlite::Result<()> {
         self.db.lock().execute(
             "INSERT INTO frames (printer_id, ts, jpeg) VALUES (?, ?, ?)",
@@ -46,8 +38,6 @@ impl Store {
         Ok(())
     }
 
-    /// The frame with the smallest timestamp at or after `ts`, with that
-    /// timestamp.
     pub fn frame_at_or_after(&self, ts: i64) -> rusqlite::Result<Option<(Vec<u8>, i64)>> {
         self.db
             .lock()
@@ -59,7 +49,6 @@ impl Store {
             .optional()
     }
 
-    /// The oldest and newest frame timestamps stored.
     pub fn range(&self) -> rusqlite::Result<(Option<i64>, Option<i64>)> {
         self.db.lock().query_row(
             "SELECT MIN(ts), MAX(ts) FROM frames WHERE printer_id = ?",
@@ -68,8 +57,6 @@ impl Store {
         )
     }
 
-    /// Forgets prints whose footage has all been deleted to make room, so the
-    /// list only offers what can still be played.
     pub fn forget_unrecorded_jobs(&self) -> rusqlite::Result<usize> {
         self.db.lock().execute(
             "DELETE FROM jobs WHERE end_ts IS NOT NULL
@@ -80,7 +67,6 @@ impl Store {
         )
     }
 
-    /// Records the start of a print and returns its id.
     pub fn open_job(&self, name: &str, start: i64) -> rusqlite::Result<i64> {
         let conn = self.db.lock();
         conn.execute(
@@ -97,7 +83,6 @@ impl Store {
         Ok(())
     }
 
-    /// The print still in progress — the newest row with no end — if any.
     pub fn active_job(&self) -> rusqlite::Result<Option<Job>> {
         self.db
             .lock()
@@ -117,16 +102,11 @@ impl Store {
             .optional()
     }
 
-    /// Closes job `id` at the last frame recorded inside it, or at `fallback`
-    /// when it has none. For a row left open by a crash, that is when the print
-    /// actually stopped being recorded.
     pub fn close_job_at_last_frame(&self, id: i64, fallback: i64) -> rusqlite::Result<()> {
         let end = {
             let conn = self.db.lock();
             let start: i64 =
                 conn.query_row("SELECT start_ts FROM jobs WHERE id = ?", [id], |r| r.get(0))?;
-            // Bounded at the next print's start so one row can't claim the
-            // footage of everything recorded after it.
             let last: Option<i64> = conn.query_row(
                 "SELECT MAX(ts) FROM frames WHERE printer_id = ?3 AND ts >= ?1
                    AND ts < COALESCE(
@@ -139,8 +119,6 @@ impl Store {
         self.close_job(id, end)
     }
 
-    /// Closes every open job row except the newest, reporting how many it
-    /// closed. Only one print runs at a time, so any others are stale.
     pub fn close_orphan_jobs(&self) -> rusqlite::Result<usize> {
         let open: Vec<(i64, i64)> = {
             let conn = self.db.lock();
@@ -149,15 +127,12 @@ impl Store {
             stmt.query_map([self.printer], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .collect::<rusqlite::Result<_>>()?
         };
-        // [0] is the newest: leave it open.
         for &(id, start) in open.iter().skip(1) {
             self.close_job_at_last_frame(id, start)?;
         }
         Ok(open.len().saturating_sub(1))
     }
 
-    /// Every stored job, newest-started first (ties by insertion order).
-    /// `forget_unrecorded_jobs` keeps this bounded.
     pub fn recent_jobs(&self) -> rusqlite::Result<Vec<Job>> {
         let conn = self.db.lock();
         let mut stmt = conn.prepare(
@@ -180,8 +155,6 @@ impl Source for Store {
         "camera frames"
     }
 
-    /// Ordered by id to match `delete_through`. `when` is in milliseconds,
-    /// like the event log's.
     fn oldest(&self, n: usize) -> rusqlite::Result<Vec<Item>> {
         let conn = self.db.lock();
         let mut stmt =
@@ -196,7 +169,6 @@ impl Source for Store {
         .collect()
     }
 
-    /// Removes every frame up to and including `id`, a running print's too.
     fn delete_through(&self, id: i64) -> rusqlite::Result<()> {
         self.db
             .lock()
@@ -213,16 +185,12 @@ impl Source for Store {
     }
 }
 
-/// Opens and closes job rows as the printer's state moves, so frames can be
-/// grouped and played back per print.
 pub struct JobTracker {
     store: Store,
     open: Option<(i64, String)>,
 }
 
 impl JobTracker {
-    /// Adopts a row left open by an earlier process, so a restart mid-print
-    /// doesn't record the print twice, and closes any older open rows.
     pub fn new(store: Store) -> JobTracker {
         match store.close_orphan_jobs() {
             Ok(0) => {}
@@ -241,16 +209,9 @@ impl JobTracker {
         JobTracker { store, open }
     }
 
-    /// Opens a row when a print starts and closes it when it ends, returning
-    /// whether anything changed. Repeated calls in one state change nothing.
-    /// States that are neither running nor ended ("unknown", PREPARE) leave the
-    /// row alone.
     pub fn observe(&mut self, gcode_state: &str, job_name: &str, now: i64) -> bool {
         let mut changed = false;
         if p1s::job_active(gcode_state) {
-            // A different name means a job boundary was missed (e.g. while the
-            // app was down), so start a new row. An empty name is just a
-            // partial report.
             if self
                 .open
                 .as_ref()
@@ -282,7 +243,6 @@ impl JobTracker {
                 self.open = None;
                 true
             }
-            // Left open on purpose: the next report in the same state retries.
             Err(err) => {
                 tracing::warn!("history: closing a job: {err}");
                 false
@@ -335,7 +295,6 @@ mod tests {
             .map(|j| j.name)
             .collect();
         assert_eq!(names, ["running.3mf", "kept.3mf"]);
-        // With no footage at all, only the running print is left.
         s.delete_through(i64::MAX).unwrap();
         s.forget_unrecorded_jobs().unwrap();
         assert_eq!(s.recent_jobs().unwrap().len(), 1);
@@ -353,7 +312,6 @@ mod tests {
         assert_eq!(one.range().unwrap(), (Some(100), Some(100)));
         assert_eq!(two.frame_at_or_after(0).unwrap(), Some((vec![2], 200)));
         assert_eq!(one.active_job().unwrap().unwrap().name, "one.3mf");
-        // Only one print runs per printer, not across them.
         assert_eq!(two.close_orphan_jobs().unwrap(), 0);
         assert_eq!(all.total_bytes().unwrap(), 2);
         two.delete_all().unwrap();
@@ -431,8 +389,6 @@ mod tests {
         let jobs = s.recent_jobs().unwrap();
         assert_eq!(jobs[1].end, Some(1000));
     }
-
-    // The tracker, which replaces the old polling job watcher.
 
     fn tracked() -> (Store, JobTracker) {
         let s = store();

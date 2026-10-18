@@ -1,5 +1,3 @@
-//! The phone-facing HTTP interface.
-
 mod actions;
 mod camera;
 mod csrf;
@@ -31,7 +29,6 @@ use serde_json::Value;
 pub use csrf::CrossOrigin;
 pub use live::Feed;
 
-/// Everything the handlers reach.
 #[derive(Clone)]
 pub struct App {
     pub printers: Printers,
@@ -43,8 +40,6 @@ pub struct App {
 }
 
 impl App {
-    /// The printer a request is about: `?printer=<id>`, or the first one when
-    /// it doesn't say. None when there are no printers and none was named.
     fn printer(&self, query: &Query) -> Result<Option<Arc<Printer>>, Box<Response>> {
         let Some(raw) = query.get("printer") else {
             return Ok(self.printers.first());
@@ -91,7 +86,6 @@ pub fn router(app: App) -> Router {
 
 type Query = axum::extract::Query<HashMap<String, String>>;
 
-/// A plain-text reply, the way every error and action result is sent.
 pub fn text(status: StatusCode, msg: impl Into<String>) -> Response {
     let mut body = msg.into();
     if !status.is_success() {
@@ -110,14 +104,12 @@ pub fn text(status: StatusCode, msg: impl Into<String>) -> Response {
     resp
 }
 
-/// A JSON reply.
 pub fn json_reply(v: &impl Serialize) -> Response {
     let mut body = serde_json::to_vec(v).unwrap_or_default();
     body.push(b'\n');
     ([(header::CONTENT_TYPE, "application/json")], body).into_response()
 }
 
-/// Decodes a small JSON request body.
 fn read_json<T: serde::de::DeserializeOwned>(body: &[u8]) -> Option<T> {
     if body.len() > 4096 {
         return None;
@@ -132,9 +124,6 @@ async fn status(State(app): State<App>, query: Query) -> Response {
     }
 }
 
-/// What the page shows about a printer, from its merged state and its timers,
-/// at `now` (unix milliseconds). With no printer, the same shape with nothing
-/// known.
 pub fn status_of(printer: Option<&Printer>, now: i64) -> Status {
     let snap = printer.map(|p| p.cache.snapshot()).unwrap_or_default();
     let snap: &Snapshot = &snap;

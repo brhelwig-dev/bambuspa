@@ -1,7 +1,3 @@
-//! The printers on the Settings screen: listing, adding, editing (including
-//! renaming) and removing them. Access codes are never sent back, only
-//! whether one is set.
-
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -55,8 +51,6 @@ fn config(req: &PrinterRequest, stored_code: &str) -> Result<Config, Box<Respons
     Ok(conf)
 }
 
-/// Connects once with `conf`, unless asked not to, and says what is wrong
-/// if the printer doesn't answer.
 async fn check(req: &PrinterRequest, app: &App, conf: &Config) -> Result<(), Box<Response>> {
     if req.skip_check {
         return Ok(());
@@ -79,7 +73,6 @@ pub async fn add(State(app): State<App>, body: Bytes) -> Response {
         Ok(conf) => conf,
         Err(refusal) => return *refusal,
     };
-    // A bad name is cheaper to find out about than an unanswered printer.
     if let Err(err) = app.printers.check_name(&req.name, None) {
         return text(StatusCode::BAD_REQUEST, err);
     }
@@ -92,8 +85,6 @@ pub async fn add(State(app): State<App>, body: Bytes) -> Response {
     }
 }
 
-/// Renames a printer or changes its details. The printer is only checked when
-/// its address, serial or access code changed.
 pub async fn update(State(app): State<App>, Path(id): Path<i64>, body: Bytes) -> Response {
     let Some(printer) = app.printers.get(id) else {
         return text(StatusCode::NOT_FOUND, "no such printer");

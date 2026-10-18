@@ -1,6 +1,3 @@
-//! Printer errors as readable messages: HMS entries and the separate
-//! print_error value.
-
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -11,12 +8,8 @@ use super::Fields;
 
 pub use bambuspa_api::HmsEntry;
 
-/// The community English message table (ha-bambulab, MIT), filtered to the
-/// P1S/P1P. Not verified against a real printer payload. "hms" is keyed by
-/// `format_hms_code`, "print_error" by `format_print_error`.
 const MESSAGES: &str = include_str!("error_messages.json");
 
-/// Take precedence over the table.
 const HMS_OVERRIDES: &[(&str, &str)] = &[("0300-8000-0003-0002", "AMS filament runout")];
 
 #[derive(Deserialize)]
@@ -36,7 +29,6 @@ fn tables() -> &'static Tables {
     })
 }
 
-/// An attr/code pair in Bambu's dash-grouped hex, e.g. "0300-8000-0003-0002".
 pub fn format_hms_code(attr: i64, code: i64) -> String {
     let hex = format!("{attr:08X}{code:08X}");
     format!(
@@ -48,7 +40,6 @@ pub fn format_hms_code(attr: i64, code: i64) -> String {
     )
 }
 
-/// A print_error value as two dash-grouped words, e.g. "0300-4000".
 pub fn format_print_error(code: i64) -> String {
     let hex = format!("{code:08X}");
     format!("{}-{}", &hex[0..4], &hex[4..8])
@@ -59,9 +50,6 @@ fn entry(code: String, table: &HashMap<String, String>) -> HmsEntry {
     HmsEntry { code, message }
 }
 
-/// The non-zero print_error first, then each HMS entry, translated (falling
-/// back to the raw code when it isn't in the table). Entries with an
-/// unexpected shape are skipped.
 pub fn hms_errors(fields: &Fields) -> Vec<HmsEntry> {
     let mut out = Vec::new();
     if let Some(pe) = fields

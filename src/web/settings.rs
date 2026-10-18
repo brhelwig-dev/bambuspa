@@ -1,5 +1,3 @@
-//! The Settings and Events screens.
-
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
@@ -8,11 +6,8 @@ use bambuspa_api::{Event, Events};
 use super::{App, Query, json_reply, text};
 use crate::settings::{self as keys, BYTES_PER_MB};
 
-/// How many entries the Events screen is sent.
 const SHOWN_EVENTS: usize = 500;
 
-/// The current values in their stored units: seconds, megabytes or a count,
-/// plus the dashboard layout as text. The printer's details are not here.
 pub async fn get(State(app): State<App>) -> Response {
     let v = app.settings.values();
     json_reply(&bambuspa_api::Settings {
@@ -26,8 +21,6 @@ pub async fn get(State(app): State<App>) -> Response {
     })
 }
 
-/// Stores one value. Nothing has to be told: everything that consults a
-/// setting does so at the point of use.
 pub async fn set(State(app): State<App>, Path(name): Path<String>, query: Query) -> Response {
     if keys::is_text(&name) {
         if name != keys::DASHBOARD {
@@ -48,7 +41,6 @@ pub async fn set(State(app): State<App>, Path(name): Path<String>, query: Query)
     }
 }
 
-/// The most recent event-log entries, newest first.
 pub async fn events(State(app): State<App>) -> Response {
     let events = app.activity.entries(SHOWN_EVENTS);
     json_reply(&Events {

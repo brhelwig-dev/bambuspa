@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # rustup installs the toolchain rust-toolchain.toml names on first use.
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -24,9 +23,6 @@ jobs:
       - run: cargo test --workspace --locked
 
   dist:
-    # The same script release.yaml runs, so a platform that stops building fails
-    # here rather than at release time. Each platform builds natively on a
-    # runner of its own OS and architecture, and is then run there.
     strategy:
       fail-fast: false
       matrix:
@@ -43,8 +39,6 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-      # The arm64 Windows image may lack rustup, and ring builds its code for
-      # that target with clang.
       - if: matrix.platform == 'windows/arm64'
         run: |
           if ! command -v rustup; then
@@ -79,7 +73,6 @@ jobs:
 
   image:
     needs: test
-    # Native arm64, so the image builds without emulation.
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -93,8 +86,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Built on every pull request so a broken Dockerfile fails there rather
-      # than after it reaches main; only a push to main publishes the result.
       - uses: docker/build-push-action@v7
         with:
           context: .

@@ -1,5 +1,3 @@
-//! The recorded camera footage.
-
 use axum::extract::State;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -10,11 +8,8 @@ use crate::p1s;
 use crate::printers::Printer;
 use std::sync::Arc;
 
-/// How far before a running print's start the scrub bar begins, so the whole
-/// job is one drag of the bar with nothing earlier in the way.
 pub const JOB_LEAD_IN: i64 = 5 * 60;
 
-/// The printer a camera request is about. With none, an empty answer.
 fn pick(app: &App, query: &Query) -> Result<Arc<Printer>, Box<Response>> {
     match app.printer(query)? {
         Some(p) => Ok(p),
@@ -34,21 +29,16 @@ pub async fn range(State(app): State<App>, query: Query) -> Response {
     }
 }
 
-/// The span the scrub bar covers: everything stored, or just the running
-/// print while there is one. Earlier prints are reached by picking a job.
 pub fn range_of(printer: &Printer) -> rusqlite::Result<Range> {
     let (mut oldest, newest) = printer.store.range()?;
     if let (Some(old), Some(new), Some(start)) = (oldest, newest, running_job_start(printer))
         && start > old
     {
-        // A print that started after the last recorded frame (camera down
-        // when it began) would otherwise put the start past the end.
         oldest = Some(start.min(new));
     }
     Ok(Range { oldest, newest })
 }
 
-/// Just before the running print began, if one is running.
 fn running_job_start(printer: &Printer) -> Option<i64> {
     let snap = printer.cache.snapshot();
     if !p1s::job_active(p1s::gcode_state(&snap.fields)) {
