@@ -17,7 +17,7 @@ pub mod settings {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ServerMessage {
     Printers { printers: Vec<PrinterSummary> },
-    Status(Status),
+    Status(Box<Status>),
     Range(Range),
     Jobs { jobs: Vec<Job> },
 }

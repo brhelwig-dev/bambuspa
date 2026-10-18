@@ -54,7 +54,7 @@ impl Feed {
     fn status(&self, printer: &Printer, now: i64) {
         publish(
             &self.status,
-            &ServerMessage::Status(super::status_of(Some(printer), now)),
+            &ServerMessage::Status(Box::new(super::status_of(Some(printer), now))),
         );
     }
 
@@ -167,7 +167,7 @@ impl Watching {
             None => {
                 let fixed = |msg: ServerMessage| watch::Sender::new(encode(&msg)).subscribe();
                 Watching {
-                    status: fixed(ServerMessage::Status(super::status_of(None, now))),
+                    status: fixed(ServerMessage::Status(Box::new(super::status_of(None, now)))),
                     range: fixed(ServerMessage::Range(Range::default())),
                     jobs: fixed(ServerMessage::Jobs { jobs: Vec::new() }),
                     frames: broadcast::Sender::new(1).subscribe(),
