@@ -53,7 +53,12 @@ impl State {
             reachable: Signal::new(true),
             range: Signal::new(api::Range::default()),
             jobs: Signal::new(Vec::new()),
-            dashboard: Signal::new(dashboard::SECTIONS.iter().map(|s| s.0.to_string()).collect()),
+            dashboard: Signal::new(
+                dashboard::SECTIONS
+                    .iter()
+                    .map(|s| s.0.to_string())
+                    .collect(),
+            ),
             camera: Camera::new(),
         }
     }

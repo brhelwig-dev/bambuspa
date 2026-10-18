@@ -106,7 +106,9 @@ fn show_frame(state: State, ts: f64) {
         if let Some(url) = object_url(&jpeg) {
             set_image(camera, url);
         }
-        camera.caption.set(js::cam_time(if taken > 0.0 { taken } else { ts }, true));
+        camera
+            .caption
+            .set(js::cam_time(if taken > 0.0 { taken } else { ts }, true));
     });
 }
 

@@ -147,9 +147,7 @@ async fn enable(mut push: Push, permission: Result<Promise, JsValue>) -> Result<
         .peek()
         .clone()
         .ok_or_else(|| "no service worker".to_string())?;
-    let key = B64
-        .decode(server_key().await?)
-        .map_err(|e| e.to_string())?;
+    let key = B64.decode(server_key().await?).map_err(|e| e.to_string())?;
     let options = PushSubscriptionOptionsInit::new();
     options.set_user_visible_only(true);
     options.set_application_server_key(&Uint8Array::from(key.as_slice()));
@@ -173,9 +171,7 @@ async fn disable(mut push: Push, sub: PushSubscription) -> Result<(), String> {
 fn toggle(mut push: Push, mut state: State) {
     push.busy.set(true);
     let subscribed = push.subscription.peek().clone();
-    let permission = subscribed
-        .is_none()
-        .then(Notification::request_permission);
+    let permission = subscribed.is_none().then(Notification::request_permission);
     spawn(async move {
         let result = match (subscribed, permission) {
             (Some(sub), _) => disable(push, sub).await,
@@ -290,7 +286,10 @@ pub fn NotificationsCard(message: Signal<String>) -> Element {
     };
     let ready = support == Support::Ready;
     let chosen = prefs.cloned();
-    let available = chosen.as_ref().map(|p| p.available.clone()).unwrap_or_default();
+    let available = chosen
+        .as_ref()
+        .map(|p| p.available.clone())
+        .unwrap_or_default();
     let bed_interval = chosen.as_ref().map_or(0, |p| p.bed_interval);
     rsx! {
         div { class: "card",

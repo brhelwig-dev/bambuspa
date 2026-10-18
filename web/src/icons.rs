@@ -18,6 +18,7 @@ pub const EXTRUDE: &str = r#"<svg viewBox="0 0 24 24" fill="currentColor"><path 
 
 pub const UNLOAD: &str = r#"<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5l7 9H5z"/><rect x="5" y="16" width="14" height="3" rx="1.5"/></svg>"#;
 
-pub const PLAY: &str = r#"<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>"#;
+pub const PLAY: &str =
+    r#"<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>"#;
 
 pub const PAUSE: &str = r#"<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>"#;

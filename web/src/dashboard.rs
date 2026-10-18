@@ -127,7 +127,11 @@ fn Chip(printer: api::PrinterSummary) -> Element {
         let problem = printer.problem.as_deref().unwrap_or("not connected");
         format!("{}: {}", printer.name, problem)
     };
-    let dot = if printer.connected { "dot ok" } else { "dot bad" };
+    let dot = if printer.connected {
+        "dot ok"
+    } else {
+        "dot bad"
+    };
     let pct = (!printer.progress.is_null()).then(|| format!("{}%", js::text(&printer.progress)));
     let id = printer.id;
     let name = printer.name;
@@ -149,7 +153,11 @@ fn Chip(printer: api::PrinterSummary) -> Element {
 fn HmsBanner() -> Element {
     let state = use_context::<State>();
     let status = state.status.cloned();
-    let Some(hms) = status.as_ref().map(|s| &s.hms).filter(|hms| !hms.is_empty()) else {
+    let Some(hms) = status
+        .as_ref()
+        .map(|s| &s.hms)
+        .filter(|hms| !hms.is_empty())
+    else {
         return rsx! {};
     };
     let text = hms
@@ -240,7 +248,11 @@ fn MachineCard() -> Element {
     let (gcode, bed, nozzle, fans) = match &status {
         Some(s) => (
             s.gcode_state.clone(),
-            format!("{} / {}°C", js::fixed1(&s.bed_temp), js::fixed1(&s.bed_target)),
+            format!(
+                "{} / {}°C",
+                js::fixed1(&s.bed_temp),
+                js::fixed1(&s.bed_target)
+            ),
             format!(
                 "{} / {}°C",
                 js::fixed1(&s.nozzle_temp),
@@ -686,7 +698,13 @@ fn AmsEditor(unit_id: Value, slot: Value, open: Signal<bool>) -> Element {
     let mut open = open;
     let mut color = use_signal(|| format!("#{}", color6(&slot)));
     let mut kind = use_signal(|| slot["tray_type"].as_str().unwrap_or("").to_string());
-    let given = |v: &Value| if v.is_null() { String::new() } else { js::text(v) };
+    let given = |v: &Value| {
+        if v.is_null() {
+            String::new()
+        } else {
+            js::text(v)
+        }
+    };
     let mut temp_min = use_signal(|| given(&slot["nozzle_temp_min"]));
     let mut temp_max = use_signal(|| given(&slot["nozzle_temp_max"]));
     let save = move |_| {

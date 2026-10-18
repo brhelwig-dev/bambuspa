@@ -314,8 +314,10 @@ struct PrinterForm {
 impl PrinterForm {
     fn show(mut self, printer: Option<&api::PrinterInfo>) {
         self.editing.set(printer.map(|p| p.id));
-        self.name.set(printer.map(|p| p.name.clone()).unwrap_or_default());
-        self.ip.set(printer.map(|p| p.ip.clone()).unwrap_or_default());
+        self.name
+            .set(printer.map(|p| p.name.clone()).unwrap_or_default());
+        self.ip
+            .set(printer.map(|p| p.ip.clone()).unwrap_or_default());
         self.serial
             .set(printer.map(|p| p.serial.clone()).unwrap_or_default());
         self.code.set(String::new());
@@ -392,9 +394,19 @@ fn save_printer(
     });
 }
 
-fn remove_printer(mut form: PrinterForm, rows: Signal<Vec<api::PrinterInfo>>, printer: &api::PrinterInfo) {
-    let question = format!("Remove {}? Its camera history is deleted too.", printer.name);
-    if !js::window().confirm_with_message(&question).unwrap_or(false) {
+fn remove_printer(
+    mut form: PrinterForm,
+    rows: Signal<Vec<api::PrinterInfo>>,
+    printer: &api::PrinterInfo,
+) {
+    let question = format!(
+        "Remove {}? Its camera history is deleted too.",
+        printer.name
+    );
+    if !js::window()
+        .confirm_with_message(&question)
+        .unwrap_or(false)
+    {
         return;
     }
     let (id, name) = (printer.id, printer.name.clone());
@@ -402,7 +414,9 @@ fn remove_printer(mut form: PrinterForm, rows: Signal<Vec<api::PrinterInfo>>, pr
         match http::delete(&format!("/api/printers/{id}")).await {
             Ok(response) if response.ok() => form.message.set((format!("Removed {name}."), false)),
             Ok(response) => form.message.set((http::reply_text(response).await, true)),
-            Err(e) => form.message.with_mut(|m| m.0 = format!("could not remove: {e}")),
+            Err(e) => form
+                .message
+                .with_mut(|m| m.0 = format!("could not remove: {e}")),
         }
         form.close();
         load_printers(rows).await;
@@ -560,7 +574,10 @@ fn PrinterItem(
         Some(p) => format!(
             "{} · {}",
             printer.ip,
-            p.problem.clone().filter(|p| !p.is_empty()).unwrap_or_else(|| "connecting…".to_string())
+            p.problem
+                .clone()
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| "connecting…".to_string())
         ),
     };
     let detail_class = live.as_ref().filter(|p| !p.connected).map(|_| "bad");
@@ -698,7 +715,11 @@ fn AccountCard() -> Element {
                 && response.ok()
                 && let Ok(me) = response.json::<api::Me>().await
             {
-                let name = if me.name.is_empty() { me.subject } else { me.name };
+                let name = if me.name.is_empty() {
+                    me.subject
+                } else {
+                    me.name
+                };
                 who.set(Some(name));
             }
         });
