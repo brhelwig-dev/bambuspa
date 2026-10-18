@@ -1,33 +1,26 @@
-//! The Settings and Events screens.
-
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
-use serde_json::json;
+use bambuspa_api::{Event, Events};
 
 use super::{App, Query, json_reply, text};
 use crate::settings::{self as keys, BYTES_PER_MB};
 
-/// How many entries the Events screen is sent.
 const SHOWN_EVENTS: usize = 500;
 
-/// The current values in their stored units: seconds, megabytes or a count,
-/// plus the dashboard layout as text. The printer's details are not here.
 pub async fn get(State(app): State<App>) -> Response {
     let v = app.settings.values();
-    json_reply(&json!({
-        keys::CAMERA_STORAGE: v.camera_storage / BYTES_PER_MB,
-        keys::BED_OFF_AFTER: v.bed_off_after,
-        keys::NOZZLE_OFF_AFTER: v.nozzle_off_after,
-        keys::LAMP_OFF_AFTER: v.lamp_off_after,
-        keys::ACTIVITY_LIMIT: v.activity_limit / BYTES_PER_MB,
-        keys::SESSION_LENGTH: v.session_length,
-        keys::DASHBOARD: v.dashboard,
-    }))
+    json_reply(&bambuspa_api::Settings {
+        camera_storage: v.camera_storage / BYTES_PER_MB,
+        bed_off_after: v.bed_off_after,
+        nozzle_off_after: v.nozzle_off_after,
+        lamp_off_after: v.lamp_off_after,
+        activity_limit: v.activity_limit / BYTES_PER_MB,
+        session_length: v.session_length,
+        dashboard: v.dashboard,
+    })
 }
 
-/// Stores one value. Nothing has to be told: everything that consults a
-/// setting does so at the point of use.
 pub async fn set(State(app): State<App>, Path(name): Path<String>, query: Query) -> Response {
     if keys::is_text(&name) {
         if name != keys::DASHBOARD {
@@ -48,9 +41,11 @@ pub async fn set(State(app): State<App>, Path(name): Path<String>, query: Query)
     }
 }
 
-/// The most recent event-log entries, newest first.
 pub async fn events(State(app): State<App>) -> Response {
-    json_reply(&json!({"events": app.activity.entries(SHOWN_EVENTS)}))
+    let events = app.activity.entries(SHOWN_EVENTS);
+    json_reply(&Events {
+        events: events.iter().map(Event::from).collect(),
+    })
 }
 
 use axum::response::IntoResponse;

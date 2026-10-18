@@ -1,6 +1,3 @@
-//! The HTTP contract, driven through the whole app — against a fake printer
-//! where a command has to reach one.
-
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
@@ -13,8 +10,6 @@ fn idle() -> Value {
 fn running() -> Value {
     json!({"gcode_state": "RUNNING", "subtask_name": "benchy.gcode", "bed_temper": 60.0})
 }
-
-// Status.
 
 #[tokio::test]
 async fn status_carries_the_printers_fields() {
@@ -69,8 +64,6 @@ async fn status_with_nothing_configured() {
     assert_eq!(s["chamberLight"], Value::Null);
     assert_eq!(s["bedOffIn"], Value::Null);
 }
-
-// Actions.
 
 #[tokio::test]
 async fn idle_actions_reach_the_printer_with_exact_payloads() {
@@ -332,8 +325,6 @@ async fn set_filament_is_validated_normalized_and_sent() {
     assert_eq!(r.status, StatusCode::CONFLICT);
 }
 
-// Commands and reports land in the event log.
-
 #[tokio::test]
 async fn the_event_log_records_commands_their_acknowledgement_and_reports() {
     let h = Harness::with_printer(running()).await;
@@ -356,8 +347,6 @@ async fn the_event_log_records_commands_their_acknowledgement_and_reports() {
     }
     assert!(acked, "the broker's acknowledgement was recorded");
 }
-
-// Settings and the printer.
 
 #[tokio::test]
 async fn settings_are_served_and_set_in_their_units() {
@@ -476,8 +465,6 @@ async fn adding_a_printer_connects_to_it_and_keeps_its_secret() {
     );
     assert!(!got.text().contains("secret"));
 
-    // Re-saving without the code keeps it, and a rename alone doesn't
-    // reconnect or check the printer.
     let r = h
         .request(
             "POST",
@@ -489,7 +476,6 @@ async fn adding_a_printer_connects_to_it_and_keeps_its_secret() {
     assert!(h.app.printers.get(id).unwrap().cache.snapshot().connected);
     assert_eq!(h.get("/api/printers").await.json()[0]["name"], "Workshop");
 
-    // And it is still there after a restart.
     drop(h);
     let again = Harness::start_in(dir, crate::auth::Decision::Disabled, None).await;
     assert_eq!(
@@ -521,7 +507,6 @@ async fn a_printer_that_does_not_answer_is_not_saved_and_says_why() {
             "Signed in, but the printer didn't answer for serial SERIAL2. Check the serial.",
         ),
         (
-            // Nothing listens there.
             save("127.0.0.3", "SERIAL1", "secret"),
             "127.0.0.3 refused the connection. Check the address, and that LAN mode is on in the printer's network settings.",
         ),
@@ -535,7 +520,6 @@ async fn a_printer_that_does_not_answer_is_not_saved_and_says_why() {
     }
     assert_eq!(h.get("/api/printers").await.json(), json!([]));
 
-    // Saved anyway, the status says why it isn't connected.
     let r = h
         .request(
             "POST",
@@ -559,7 +543,6 @@ async fn a_printer_that_does_not_answer_is_not_saved_and_says_why() {
         )
     );
 
-    // Changing the details checks them again.
     let id = status["printer"].as_i64().unwrap();
     let r = h
         .request(
@@ -575,7 +558,6 @@ async fn a_printer_that_does_not_answer_is_not_saved_and_says_why() {
 async fn several_printers_each_get_their_own_requests_and_footage() {
     let one =
         crate::testing::printer::FakePrinter::start("127.0.0.1", 0, 0, "SERIAL1", "secret").await;
-    // The same ports on another loopback address, as two printers on a LAN.
     let two = crate::testing::printer::FakePrinter::start(
         "127.0.0.2",
         one.mqtt_port,
@@ -634,8 +616,6 @@ async fn several_printers_each_get_their_own_requests_and_footage() {
     h.wait_on(id2, |s| s.connected && !s.fields.is_empty())
         .await;
 
-    // Each status and action is about the printer asked for; no printer named
-    // means the first.
     assert_eq!(h.get("/api/status").await.json()["printer"], id1);
     let s2 = h.get(&format!("/api/status?printer={id2}")).await.json();
     assert_eq!(
@@ -663,7 +643,6 @@ async fn several_printers_each_get_their_own_requests_and_footage() {
     one.wait_for(|r| r.contains("G28")).await;
     assert!(!two.requests().iter().any(|r| r.contains("G28")));
 
-    // Footage is kept per printer.
     let p2 = h.app.printers.get(id2).unwrap();
     p2.store.insert_frame(5, &[2]).unwrap();
     assert_eq!(
@@ -674,10 +653,8 @@ async fn several_printers_each_get_their_own_requests_and_footage() {
     );
     assert_ne!(h.get("/camera/history/frame?ts=0").await.body, vec![2]);
 
-    // Notifications say which printer, while there is more than one.
     assert_eq!(h.app.printers.label(id2), "Office: ");
 
-    // Removing one stops it and forgets its footage.
     assert_eq!(
         h.request("DELETE", &format!("/api/printers/{id2}"), "")
             .await
@@ -704,8 +681,6 @@ async fn several_printers_each_get_their_own_requests_and_footage() {
     assert_eq!(h.app.printers.label(id1), "");
 }
 
-// Camera.
-
 #[tokio::test]
 async fn frames_jobs_and_the_range() {
     let h = Harness::offline().await;
@@ -713,7 +688,6 @@ async fn frames_jobs_and_the_range() {
         h.get("/camera/history/range").await.json(),
         json!({"oldest": null, "newest": null})
     );
-    // A printer that isn't there, so nothing is recorded but what is put here.
     h.app
         .printers
         .add(
@@ -802,8 +776,6 @@ async fn the_camera_is_recorded() {
     );
 }
 
-// Static files.
-
 #[tokio::test]
 async fn the_page_and_its_files_are_served() {
     let h = Harness::offline().await;
@@ -814,6 +786,7 @@ async fn the_page_and_its_files_are_served() {
     assert!(page.text().contains("<script>"));
     for (path, kind) in [
         ("/sw.js", "text/javascript; charset=utf-8"),
+        ("/style.css", "text/css; charset=utf-8"),
         ("/manifest.webmanifest", "application/manifest+json"),
         ("/icon-192.png", "image/png"),
         ("/icon-512.png", "image/png"),
@@ -838,8 +811,6 @@ async fn the_page_and_its_files_are_served() {
         StatusCode::METHOD_NOT_ALLOWED
     );
 }
-
-// Cross-origin requests.
 
 #[tokio::test]
 async fn cross_origin_posts_are_refused() {
@@ -877,8 +848,6 @@ async fn cross_origin_posts_are_refused() {
         .unwrap();
     assert_eq!(h.send(get).await.status, StatusCode::OK);
 }
-
-// Push.
 
 #[tokio::test]
 async fn push_subscriptions_and_preferences() {
@@ -953,7 +922,6 @@ async fn push_subscriptions_and_preferences() {
     );
     assert_eq!(prefs(&h).await["kinds"], json!(["printer-error"]));
     assert_eq!(prefs(&h).await["bedInterval"], 3600);
-    // Switching everything off is honoured, not read back as everything on.
     assert_eq!(
         h.request("POST", "/api/push/preferences", &set(json!([]), 0))
             .await
@@ -1002,7 +970,6 @@ async fn push_subscriptions_and_preferences() {
 #[tokio::test]
 async fn the_test_notification_reaches_a_subscribed_device() {
     use std::sync::{Arc, Mutex};
-    // A push service that records what it is sent.
     let seen: Arc<Mutex<Vec<(String, usize)>>> = Arc::default();
     let record = seen.clone();
     let service = axum::Router::new().route(
@@ -1040,8 +1007,6 @@ async fn the_test_notification_reaches_a_subscribed_device() {
     let events = h.get("/api/events").await.json();
     assert_eq!(events["events"][0]["summary"], "BambuSpa → 1 of 1 devices");
 }
-
-// The websocket.
 
 mod live {
     use super::*;
@@ -1100,8 +1065,6 @@ mod live {
         let jobs = next_of(&mut ws, |v| v["type"] == "jobs").await;
         assert_eq!(jobs["jobs"], json!([]));
 
-        // A print starting changes both the status and the job list, in
-        // whichever order they are ready.
         h.printer()
             .report(json!({"gcode_state": "RUNNING", "subtask_name": "benchy"}));
         let (mut status, mut jobs) = (None, None);
@@ -1126,7 +1089,6 @@ mod live {
         let h = Harness::with_printer(idle()).await;
         let addr = h.serve().await;
         let mut ws = connect(addr, &format!("http://{addr}")).await.unwrap();
-        // Not following: a couple of seconds of messages, none binary.
         let until = tokio::time::Instant::now() + std::time::Duration::from_millis(1500);
         while let Ok(Some(Ok(msg))) = tokio::time::timeout_at(until, ws.next()).await {
             assert!(

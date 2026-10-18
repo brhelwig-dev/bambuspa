@@ -1,12 +1,8 @@
-//! The printers the app looks after, each with a name the user chose. Every
-//! printer has its own connection, camera recorder, reactor (notifications,
-//! auto-off, the lamp) and live feed, all running whichever printer the page
-//! is showing.
-
 use std::sync::{Arc, RwLock};
 
+use bambuspa_api::{PrinterSummary, ServerMessage};
 use rusqlite::params;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::{Notify, watch};
 use tokio::task::AbortHandle;
 
@@ -21,10 +17,8 @@ use crate::settings::Settings;
 use crate::timers::Timers;
 use crate::web::Feed;
 
-/// The longest name a printer may have, in characters.
 pub const MAX_NAME: usize = 40;
 
-/// One printer while the app runs.
 pub struct Printer {
     pub id: i64,
     name: RwLock<String>,
@@ -34,7 +28,6 @@ pub struct Printer {
     pub timers: Timers,
     pub hub: Hub,
     pub feed: Feed,
-    /// Fires when one of its job rows is opened, closed or forgotten.
     pub jobs_changed: Arc<Notify>,
 }
 
@@ -44,7 +37,6 @@ impl Printer {
     }
 }
 
-/// What every printer is built from.
 #[derive(Clone)]
 pub struct Deps {
     pub db: Db,
@@ -57,7 +49,6 @@ pub struct Deps {
     pub ports: Ports,
 }
 
-/// A running printer and the tasks that belong to it.
 struct Entry {
     printer: Arc<Printer>,
     tasks: Vec<AbortHandle>,
@@ -74,10 +65,7 @@ impl Drop for Entry {
 
 struct Inner {
     deps: Deps,
-    /// In the order they were added.
     entries: RwLock<Vec<Entry>>,
-    /// `{"type":"printers","printers":[...]}`: each printer's name and how it
-    /// is doing, for the switcher. Republished whenever any of it changes.
     summary: watch::Sender<Arc<str>>,
 }
 
@@ -87,7 +75,6 @@ pub struct Printers {
 }
 
 impl Printers {
-    /// Starts every stored printer.
     pub fn load(deps: Deps) -> rusqlite::Result<Printers> {
         let rows: Vec<(i64, String, Config)> = {
             let conn = deps.db.lock();
@@ -195,8 +182,6 @@ impl Printers {
         self.read().first().map(|e| e.printer.clone())
     }
 
-    /// What starts a notification about printer `id`: its name, once there is
-    /// more than one printer to tell apart.
     pub fn label(&self, id: i64) -> String {
         let entries = self.read();
         if entries.len() < 2 {
@@ -209,7 +194,6 @@ impl Printers {
             .unwrap_or_default()
     }
 
-    /// Checks a name for a printer other than `except`, and returns it tidied.
     pub fn check_name(&self, name: &str, except: Option<i64>) -> Result<String, String> {
         let name = name.trim();
         if name.is_empty() {
@@ -229,7 +213,6 @@ impl Printers {
         Ok(name.to_string())
     }
 
-    /// Stores and starts a new printer, returning its id.
     pub fn add(&self, name: &str, conf: Config) -> Result<i64, String> {
         let name = self.check_name(name, None)?;
         let id = {
@@ -246,8 +229,6 @@ impl Printers {
         Ok(id)
     }
 
-    /// Renames a printer and, if they changed, points it at new details. A
-    /// rename alone leaves the connection alone.
     pub fn update(&self, id: i64, name: &str, conf: Config) -> Result<(), String> {
         let printer = self.get(id).ok_or("no such printer")?;
         let name = self.check_name(name, Some(id))?;
@@ -268,8 +249,6 @@ impl Printers {
         Ok(())
     }
 
-    /// Stops a printer and deletes everything kept about it: its details,
-    /// footage, jobs, timers and bed reminders. Its events stay in the log.
     pub fn remove(&self, id: i64) -> Result<(), String> {
         let entry = {
             let mut entries = self.write();
@@ -295,7 +274,6 @@ impl Printers {
         Ok(())
     }
 
-    /// Whether a printer with this id is stored, read from the database.
     #[cfg(test)]
     pub fn stored(&self, id: i64) -> bool {
         self.inner
@@ -306,28 +284,28 @@ impl Printers {
             .is_ok()
     }
 
-    /// Recomputes the switcher's summary, telling watchers only if it changed.
     pub fn refresh_summary(&self) {
-        let printers: Vec<Value> = self
+        let printers = self
             .list()
             .iter()
             .map(|p| {
                 let snap = p.cache.snapshot();
                 let state = p1s::gcode_state(&snap.fields);
-                json!({
-                    "id": p.id,
-                    "name": p.name(),
-                    "connected": snap.connected,
-                    "problem": snap.problem.as_deref(),
-                    "gcodeState": state,
-                    "progress": p1s::job_active(state)
+                PrinterSummary {
+                    id: p.id,
+                    name: p.name(),
+                    connected: snap.connected,
+                    problem: snap.problem.as_deref().map(str::to_string),
+                    gcode_state: state.to_string(),
+                    progress: p1s::job_active(state)
                         .then(|| snap.fields.get("mc_percent").cloned())
-                        .flatten(),
-                })
+                        .flatten()
+                        .unwrap_or(Value::Null),
+                }
             })
             .collect();
-        let msg: Arc<str> = json!({"type": "printers", "printers": printers})
-            .to_string()
+        let msg: Arc<str> = serde_json::to_string(&ServerMessage::Printers { printers })
+            .unwrap_or_default()
             .into();
         self.inner.summary.send_if_modified(|current| {
             let changed = *current != msg;
@@ -342,20 +320,16 @@ impl Printers {
         self.inner.summary.subscribe()
     }
 
-    /// Wakes every printer's job list, after housekeeping may have forgotten
-    /// some.
     pub fn jobs_changed(&self) {
         for p in self.list() {
             p.jobs_changed.notify_one();
         }
     }
 
-    /// The printers' MQTT port: fixed on a real printer, a fake's in tests.
     pub fn mqtt_port(&self) -> u16 {
         self.inner.deps.ports.mqtt
     }
 
-    /// For the startup log line.
     pub fn describe(&self) -> String {
         match self.list().as_slice() {
             [] => "no printer set up".into(),
@@ -364,7 +338,6 @@ impl Printers {
         }
     }
 
-    /// Closes every connection, at shutdown.
     pub fn stop(&self) {
         for p in self.list() {
             p.link.stop();

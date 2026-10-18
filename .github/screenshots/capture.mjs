@@ -1,16 +1,9 @@
-// Renders the page in each state the printer can be in and writes a PNG per
-// state.
-//
-// The states are driven by answering the printer's status in the browser rather
-// than by pretending at the printer, so every screenshot is the real page and
-// the real script reacting to a status payload it cannot tell from a live one.
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 
 const BASE = process.env.BASE || "http://127.0.0.1:8081";
 const OUT = process.env.OUT || "screenshots";
 
-// A phone, which is what this page is for.
 const VIEWPORT = { width: 390, height: 844 };
 
 const idle = {
@@ -140,11 +133,6 @@ const states = [
   },
 ];
 
-// Answers the printer's status with `status`, however the page asks for it: the
-// live socket's status messages are swapped for it on their way to the page
-// (the rest — camera range, recent prints — come from the real server), and
-// /api/status is answered too, for a page that still polls. `printers`, when
-// given, likewise replaces the list of printers the switcher shows.
 async function stubStatus(page, status, printers = null) {
   await page.route("**/api/status", route => route.fulfill({ json: status }));
   await page.routeWebSocket("**/api/live", ws => {
@@ -159,6 +147,10 @@ async function stubStatus(page, status, printers = null) {
   });
 }
 
+async function rendered(page) {
+  await page.waitForSelector("#settingsBtn", { timeout: 15000 }).catch(() => {});
+}
+
 async function main() {
   await mkdir(OUT, { recursive: true });
   const browser = await chromium.launch();
@@ -167,27 +159,15 @@ async function main() {
     deviceScaleFactor: 2,
     colorScheme: "dark",
   });
-  // Headless Chromium refuses notifications outright, so left alone every
-  // capture would show the card blocked — the capture browser's answer, not the
-  // app's. These stubs stand in for the browser's own notification support so
-  // the card renders as a phone renders it. Only the browser is stood in for;
-  // the card's own logic is the real one.
   const notificationSupport = (permission, subscribed) => `
     window.Notification = { permission: ${JSON.stringify(permission)},
       requestPermission: async () => ${JSON.stringify(permission)} };
     window.PushManager = class {};
-    // The subscription has to carry the server's own key, or the page correctly
-    // treats it as bound to an identity that is gone and resets itself to Off.
-    // Plain string replacement, not regexes: this whole stub is a template
-    // literal, which eats the backslash out of an escape and leaves an invalid
-    // pattern behind.
     const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)))
       .replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
     const standIn = async () => {
       const { key } = await (await fetch("/api/push/key")).json();
       const raw = atob(key.replace(/-/g, "+").replace(/_/g, "/"));
-      // Real keys, because the server stores the subscription before the
-      // settings it belongs to can be shown, and it refuses a malformed one.
       const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
       const p256dh = b64(await crypto.subtle.exportKey("raw", pair.publicKey));
       const auth = b64(crypto.getRandomValues(new Uint8Array(16)));
@@ -210,10 +190,9 @@ async function main() {
   const shots = [];
   for (const state of states) {
     const page = await context.newPage();
-    // Answer the status ourselves; everything else reaches the real server, so
-    // the camera card shows its genuine empty state rather than a staged one.
     await stubStatus(page, state.status);
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     await page.waitForTimeout(400);
     const file = `${OUT}/${state.name}.png`;
     await page.screenshot({ path: file, fullPage: true });
@@ -222,9 +201,6 @@ async function main() {
     await page.close();
   }
 
-  // The settings screen, reached the way a person reaches it, with notifications
-  // in each of the states a phone can show. A branch that predates the settings
-  // screen simply has no gear, and capturing the rest is still worth doing.
   const settingsShots = [
     { name: "09-settings", title: "Settings", permission: "default", subscribed: false,
       note: "Its own screen behind the gear, not more cards under the printer status." },
@@ -236,6 +212,7 @@ async function main() {
     await page.addInitScript(notificationSupport(shot.permission, shot.subscribed));
     await stubStatus(page, { ...idle, ams });
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     if (!await page.locator("#settingsBtn").count()) {
       console.log("no settings screen on this branch, skipping");
       await page.close();
@@ -250,8 +227,6 @@ async function main() {
     await page.close();
   }
 
-  // The events screen, with a spread of traffic: a command still waiting, one
-  // acknowledged, one that never was, a raw printer report, and a notification.
   {
     const t = (mins) => new Date(Date.parse("2026-07-30T14:00:00Z") - mins * 60000).toISOString();
     const events = [
@@ -271,10 +246,9 @@ async function main() {
     await stubStatus(page, { ...idle, ams });
     await page.route("**/api/events", route => route.fulfill({ json: { events } }));
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     if (await page.locator("#eventsBtn").count()) {
       await page.click("#eventsBtn");
-      // Open the raw view on the waiting command, since being able to read the
-      // message is the point of keeping it.
       await page.locator(".event details").first().evaluate(d => d.open = true);
       await page.waitForTimeout(400);
       const file = `${OUT}/11-events.png`;
@@ -288,7 +262,6 @@ async function main() {
     await page.close();
   }
 
-  // Light theme, and a dashboard with sections hidden and reordered.
   {
     const page = await context.newPage();
     await page.addInitScript(`try { localStorage.setItem("theme", "light"); } catch {}`);
@@ -299,6 +272,7 @@ async function main() {
               dashboard: "machineCard,jobCard,controlsCard" },
     }));
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     await page.waitForTimeout(600);
     const file = `${OUT}/12-light-rearranged.png`;
     await page.screenshot({ path: file, fullPage: true });
@@ -310,7 +284,6 @@ async function main() {
     await page.close();
   }
 
-  // Two printers: the switcher above the dashboard.
   {
     const page = await context.newPage();
     await stubStatus(page, printing, [
@@ -318,6 +291,7 @@ async function main() {
       { id: 2, name: "Office", connected: false, problem: "No answer from 192.0.2.11.", gcodeState: "unknown", progress: null },
     ]);
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
+    await rendered(page);
     await page.waitForTimeout(600);
     const file = `${OUT}/13-two-printers.png`;
     await page.screenshot({ path: file });
@@ -330,7 +304,6 @@ async function main() {
   }
 
   await browser.close();
-  // What was captured and what each shot is, for the comparison and the comment.
   const manifest = JSON.stringify(shots.map(s => ({ name: s.name, title: s.title, note: s.note })), null, 2);
   await writeFile(`${OUT}/shots.json`, manifest + "\n");
   console.log(manifest);

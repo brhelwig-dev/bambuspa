@@ -1,0 +1,5 @@
+[application]
+name = "bambuspa-web"
+
+[web.app]
+title = "BambuSpa"

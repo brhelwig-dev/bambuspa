@@ -1,56 +1,49 @@
-//! A persistent event log of commands sent to the printer (and whether they
-//! were acknowledged), printer reports, and notifications sent. It is bounded
-//! by size in bytes, since entries vary widely in size.
-
 use std::sync::{Arc, Mutex};
 
+use bambuspa_api::Event;
 use rusqlite::params;
-use serde::Serialize;
 
 use crate::capacity::{Item, Source};
 use crate::clock::Clock;
 use crate::db::Db;
 
-/// What kind of thing an entry records.
-pub const COMMAND: &str = "command"; // sent to the printer
-pub const REPORT: &str = "report"; // received from the printer
-pub const NOTIFICATION: &str = "notification"; // sent to subscribed devices
+pub const COMMAND: &str = "command";
+pub const REPORT: &str = "report";
+pub const NOTIFICATION: &str = "notification";
 
-/// How much of one payload is kept (the first report after connecting is the
-/// printer's whole state).
 const MAX_PAYLOAD: usize = 4096;
 
-/// Approximates the columns `SIZE` does not measure (id, timestamps, kind), so
-/// many tiny entries still count against the budget.
 const ROW_OVERHEAD: i64 = 64;
 
-/// How far under the limit a trim cuts, so a full log isn't trimmed on every
-/// insert.
 const LOW_WATER: f64 = 0.9;
 
-/// What one stored row costs, in bytes.
 const SIZE: &str = "octet_length(summary) + octet_length(payload) + octet_length(error) + 64";
 
-/// One logged event, as the Events screen is sent it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub id: i64,
-    #[serde(serialize_with = "rfc3339")]
     pub at: i64,
     pub kind: String,
     pub summary: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub payload: String,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "rfc3339_opt"
-    )]
     pub acked: Option<i64>,
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
-    /// The printer it was about, if it was about one.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub printer: Option<i64>,
+}
+
+impl From<&Entry> for Event {
+    fn from(e: &Entry) -> Event {
+        Event {
+            id: e.id,
+            at: to_rfc3339(e.at),
+            kind: e.kind.clone(),
+            summary: e.summary.clone(),
+            payload: e.payload.clone(),
+            acked: e.acked.map(to_rfc3339),
+            error: e.error.clone(),
+            printer: e.printer,
+        }
+    }
 }
 
 fn to_rfc3339(ms: i64) -> String {
@@ -62,38 +55,21 @@ fn to_rfc3339(ms: i64) -> String {
         .unwrap_or_default()
 }
 
-fn rfc3339<S: serde::Serializer>(ms: &i64, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&to_rfc3339(*ms))
-}
-
-fn rfc3339_opt<S: serde::Serializer>(ms: &Option<i64>, s: S) -> Result<S::Ok, S::Error> {
-    match ms {
-        Some(ms) => rfc3339(ms, s),
-        None => s.serialize_none(),
-    }
-}
-
-/// Records what happened, in the database, bounded by a size in bytes.
 #[derive(Clone)]
 pub struct Log {
     db: Db,
     limit: Arc<dyn Fn() -> i64 + Send + Sync>,
-    /// What the stored entries currently come to. Held while writing, so the
-    /// count and the table move together.
     bytes: Arc<Mutex<i64>>,
     clock: Clock,
-    /// Which printer this handle records for, if any.
     printer: Option<i64>,
 }
 
 impl Log {
-    /// `limit` returns the budget in bytes and is read on every write.
     pub fn new(
         db: Db,
         limit: impl Fn() -> i64 + Send + Sync + 'static,
         clock: Clock,
     ) -> rusqlite::Result<Log> {
-        // Count once; writes keep the total up to date after that.
         let bytes = total(&db)?;
         Ok(Log {
             db,
@@ -104,8 +80,6 @@ impl Log {
         })
     }
 
-    /// The same log, with every entry recorded through it marked as being
-    /// about printer `id`.
     pub fn for_printer(&self, id: i64) -> Log {
         Log {
             printer: Some(id),
@@ -113,9 +87,6 @@ impl Log {
         }
     }
 
-    /// Adds an entry and returns its id, so it can be acknowledged later. A
-    /// failed write is logged and returns None; it never blocks the command
-    /// being recorded.
     pub fn record(&self, kind: &str, summary: &str, payload: &str) -> Option<i64> {
         let payload = truncate(payload);
         let at = (self.clock)();
@@ -135,15 +106,11 @@ impl Log {
         Some(id)
     }
 
-    /// Records when the printer's broker confirmed a message (`Ok(at_ms)`), or
-    /// why it didn't. The row may already have been trimmed, in which case
-    /// nothing changes.
     pub fn acknowledge(&self, id: Option<i64>, result: Result<i64, String>) {
         let Some(id) = id else { return };
         let mut bytes = self.bytes.lock().unwrap_or_else(|p| p.into_inner());
         let conn = self.db.lock();
         match result {
-            // Fixed-size column, covered by ROW_OVERHEAD.
             Ok(at) => {
                 if let Err(err) = conn.execute(
                     "UPDATE activity SET acked = ? WHERE id = ?",
@@ -156,7 +123,6 @@ impl Log {
                 "UPDATE activity SET error = ? WHERE id = ?",
                 params![error, id],
             ) {
-                // Only count the error if the row still existed.
                 Ok(changed) if changed > 0 => {
                     *bytes += error.len() as i64;
                     self.trim(&conn, &mut bytes);
@@ -167,7 +133,6 @@ impl Log {
         }
     }
 
-    /// Deletes the oldest entries until the log is back under its limit.
     fn trim(&self, conn: &rusqlite::Connection, bytes: &mut i64) {
         let limit = (self.limit)();
         if limit <= 0 || *bytes <= limit {
@@ -175,7 +140,6 @@ impl Log {
         }
         let target = (limit as f64 * LOW_WATER) as i64;
         let result = (|| -> rusqlite::Result<()> {
-            // Walk from the oldest until enough is freed, then delete up to that id.
             let mut stmt =
                 conn.prepare(&format!("SELECT id, {SIZE} FROM activity ORDER BY id ASC"))?;
             let mut rows = stmt.query([])?;
@@ -198,7 +162,6 @@ impl Log {
         }
     }
 
-    /// At most `limit` entries, newest first.
     pub fn entries(&self, limit: usize) -> Vec<Entry> {
         let conn = self.db.lock();
         let read = || -> rusqlite::Result<Vec<Entry>> {
@@ -239,7 +202,6 @@ fn total(db: &Db) -> rusqlite::Result<i64> {
     )
 }
 
-/// Cuts a payload to MAX_PAYLOAD bytes, at a character boundary.
 fn truncate(payload: &str) -> std::borrow::Cow<'_, str> {
     if payload.len() <= MAX_PAYLOAD {
         return payload.into();
@@ -271,7 +233,6 @@ impl Source for Log {
         .collect()
     }
 
-    /// Removes every entry up to and including `id`, then recounts.
     fn delete_through(&self, id: i64) -> rusqlite::Result<()> {
         let mut bytes = self.bytes.lock().unwrap_or_else(|p| p.into_inner());
         self.db
@@ -335,7 +296,7 @@ mod tests {
     fn serialises_like_the_page_expects() {
         let (log, _, _) = log(1 << 20);
         log.record(NOTIFICATION, "x", "");
-        let json = serde_json::to_value(&log.entries(1)[0]).unwrap();
+        let json = serde_json::to_value(Event::from(&log.entries(1)[0])).unwrap();
         let obj = json.as_object().unwrap();
         assert!(obj.contains_key("at") && obj["at"].as_str().unwrap().starts_with("20"));
         assert!(

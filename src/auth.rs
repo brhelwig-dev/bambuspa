@@ -1,6 +1,3 @@
-//! An OpenID Connect login in front of the app. Who may log in is left to the
-//! provider: any valid login for the configured client gets in.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,6 +7,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use bambuspa_api::{Logout, Me};
 use openidconnect::core::{
     CoreAuthDisplay, CoreAuthenticationFlow, CoreClaimName, CoreClaimType, CoreClient,
     CoreClientAuthMethod, CoreGrantType, CoreJsonWebKey, CoreJweContentEncryptionAlgorithm,
@@ -22,60 +20,39 @@ use openidconnect::{
 };
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::clock::{self, Clock};
 use crate::db::Db;
 use crate::web::{CrossOrigin, json_reply, text};
 
-// Environment variables the app is configured with.
 pub const ENV_ISSUER: &str = "OIDC_ISSUER";
 pub const ENV_CLIENT_ID: &str = "OIDC_CLIENT_ID";
 pub const ENV_CLIENT_SECRET: &str = "OIDC_CLIENT_SECRET";
 pub const ENV_PUBLIC_URL: &str = "PUBLIC_URL";
 pub const ENV_DISABLED: &str = "AUTH_DISABLED";
 
-/// Where the provider sends the browser back. The redirect URI registered with
-/// the provider is PUBLIC_URL with this on the end.
 pub const CALLBACK_PATH: &str = "/auth/callback";
 
-/// How stale a session's expiry may get before a request extends it, so a
-/// page in use doesn't write on every request.
 const EXTEND_EVERY: i64 = 3600;
-/// How long a started login may take to finish.
 const LOGIN_WINDOW: i64 = 15 * 60;
-/// The session cookie. It holds only the session id.
 const SESSION_COOKIE: &str = "bambu_session";
-/// Carries the state of a login part-way through, so the callback can tell it
-/// is finishing the login this browser started.
 const LOGIN_COOKIE: &str = "bambu_login";
-/// Bounds how many started logins are held at once. Starting one needs no
-/// login, so without a bound anyone could grow the database. The oldest go
-/// first.
 pub const MAX_PENDING_LOGINS: i64 = 10_000;
 
-/// The OIDC provider. Every field is required.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Config {
     pub issuer: String,
     pub client_id: String,
     pub client_secret: String,
-    /// Where the app is reached from a browser: configured rather than taken
-    /// from request headers, which the client controls.
     pub public_url: String,
 }
 
-/// What the environment says to do about authentication.
 #[derive(Debug, PartialEq)]
 pub enum Decision {
     Required(Config),
-    /// Expressly told to run without a login.
     Disabled,
 }
 
-/// Reads the environment and works out whether to require a login. There is
-/// no default: a full provider configuration or AUTH_DISABLED=true is needed,
-/// and anything else is an error.
 pub fn decide(env: impl Fn(&str) -> Option<String>) -> Result<Decision, String> {
     let get = |name| env(name).map(|v| v.trim().to_string()).unwrap_or_default();
     let cfg = Config {
@@ -100,7 +77,6 @@ pub fn decide(env: impl Fn(&str) -> Option<String>) -> Result<Decision, String> 
     let partly = !configured && missing.len() < 4;
 
     if disabled && (configured || partly) {
-        // Contradictory; don't let a leftover AUTH_DISABLED silently win.
         return Err(format!(
             "{ENV_DISABLED} is set to true but a provider is configured too; unset one of them to say which you meant"
         ));
@@ -124,8 +100,6 @@ pub fn decide(env: impl Fn(&str) -> Option<String>) -> Result<Decision, String> 
     ))
 }
 
-/// Checks PUBLIC_URL is a bare scheme and host, and returns it without a
-/// trailing slash.
 fn check_public_url(raw: &str) -> Result<String, String> {
     let u =
         url::Url::parse(raw).map_err(|e| format!("{ENV_PUBLIC_URL}={raw:?} is not a URL: {e}"))?;
@@ -158,9 +132,6 @@ fn check_public_url(raw: &str) -> Result<String, String> {
     })
 }
 
-// Sessions and logins part-way through.
-
-/// One logged-in browser.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Session {
     pub id: String,
@@ -169,7 +140,6 @@ pub struct Session {
     pub expires: i64,
 }
 
-/// A login started but not yet come back.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pending {
     pub verifier: String,
@@ -177,7 +147,6 @@ pub struct Pending {
     pub next: String,
 }
 
-/// Who is logged in, and the logins part-way through. Times in unix seconds.
 #[derive(Clone)]
 pub struct Store {
     db: Db,
@@ -188,7 +157,6 @@ impl Store {
         Store { db }
     }
 
-    /// Opens a session and returns the value the cookie carries.
     pub fn create_session(
         &self,
         subject: &str,
@@ -204,8 +172,6 @@ impl Store {
         Ok(id)
     }
 
-    /// The live session a cookie names. A lapsed row is left for the sweep,
-    /// so a read stays a read.
     pub fn session(&self, id: &str, now: i64) -> rusqlite::Result<Option<Session>> {
         let found = self
             .db
@@ -226,8 +192,6 @@ impl Store {
         Ok(found.filter(|s| s.expires > now))
     }
 
-    /// Pushes a session's lapse out, so a phone in daily use isn't asked to log
-    /// in again on a schedule.
     pub fn extend(&self, id: &str, expires: i64) -> rusqlite::Result<()> {
         self.db.lock().execute(
             "UPDATE sessions SET expires = ? WHERE id = ?",
@@ -243,9 +207,6 @@ impl Store {
         Ok(())
     }
 
-    /// Records what the callback will need to check, dropping lapsed rows and
-    /// anything beyond MAX_PENDING_LOGINS (oldest by rowid, since expiries can
-    /// tie).
     pub fn start_login(&self, state: &str, pending: &Pending, now: i64) -> rusqlite::Result<()> {
         let conn = self.db.lock();
         conn.execute("DELETE FROM pending_logins WHERE expires <= ?", [now])?;
@@ -261,8 +222,6 @@ impl Store {
         Ok(())
     }
 
-    /// Returns and deletes what was stored for `state`, so a callback can't be
-    /// replayed. Expired entries are deleted and refused.
     pub fn take_login(&self, state: &str, now: i64) -> rusqlite::Result<Option<Pending>> {
         let mut conn = self.db.lock();
         let tx = conn.transaction()?;
@@ -287,7 +246,6 @@ impl Store {
         Ok(found.filter(|(_, expires)| *expires >= now).map(|(p, _)| p))
     }
 
-    /// Removes sessions and part-way logins that have lapsed.
     pub fn sweep(&self, now: i64) -> rusqlite::Result<()> {
         let conn = self.db.lock();
         conn.execute("DELETE FROM sessions WHERE expires <= ?", [now])?;
@@ -295,7 +253,6 @@ impl Store {
         Ok(())
     }
 
-    /// Clears out lapsed sessions and logins every hour, forever. Spawn once.
     pub async fn run_sweeper(self, clock: Clock) {
         let mut tick = tokio::time::interval(Duration::from_secs(3600));
         loop {
@@ -307,9 +264,6 @@ impl Store {
     }
 }
 
-// The login itself.
-
-/// The one piece of the provider's discovery document the standard set lacks.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct EndSession {
     end_session_endpoint: Option<String>,
@@ -341,7 +295,6 @@ type Client = CoreClient<
     EndpointMaybeSet,
 >;
 
-/// Answers whether a request may proceed, and runs the login.
 #[derive(Clone)]
 pub struct Authenticator {
     inner: Arc<Inner>,
@@ -351,17 +304,12 @@ struct Inner {
     store: Store,
     client: Client,
     http: reqwest::Client,
-    /// PUBLIC_URL, parsed: logins run on its host, and its scheme decides
-    /// whether cookies are Secure.
     public: url::Url,
-    /// The provider's logout URL, if it advertises one.
     end_session: Option<String>,
     session_length: Arc<dyn Fn() -> i64 + Send + Sync>,
     clock: Clock,
 }
 
-/// Served without a login: the health check and the files a phone fetches
-/// before it can log in.
 const OPEN_PATHS: &[&str] = &[
     "/healthz",
     "/sw.js",
@@ -371,8 +319,6 @@ const OPEN_PATHS: &[&str] = &[
 ];
 
 impl Authenticator {
-    /// Reads the provider's discovery document, so a wrong issuer fails at
-    /// startup rather than at the first login.
     pub async fn new(
         cfg: &Config,
         store: Store,
@@ -389,8 +335,6 @@ impl Authenticator {
                 )
             })?;
         let http = reqwest::Client::builder()
-            // Following redirects here would let the provider send the token
-            // request somewhere else.
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))
             .build()
@@ -426,7 +370,6 @@ impl Authenticator {
         })
     }
 
-    /// The app with the login in front of it.
     pub fn wrap(&self, app: Router) -> Router {
         Router::new()
             .route("/auth/login", get(login))
@@ -437,7 +380,6 @@ impl Authenticator {
             .merge(app.layer(axum::middleware::from_fn_with_state(self.clone(), guard)))
     }
 
-    /// The origin logins run on, for the cross-origin check.
     pub fn origin(&self) -> String {
         self.inner.public.origin().ascii_serialization()
     }
@@ -450,13 +392,10 @@ impl Authenticator {
         self.inner.public.scheme() == "https"
     }
 
-    /// The session cookie, or the one that takes it back (an expiry in the
-    /// past).
     fn session_cookie(&self, value: &str, expires: i64) -> HeaderValue {
         cookie(SESSION_COOKIE, value, "/", expires, self.secure())
     }
 
-    /// The live session a request carries.
     fn session(&self, headers: &HeaderMap) -> Option<Session> {
         let id = read_cookie(headers, SESSION_COOKIE)?;
         self.inner
@@ -480,7 +419,6 @@ fn error_chain(err: &dyn std::error::Error) -> String {
     out
 }
 
-/// A Set-Cookie value, the way Go's net/http writes one.
 fn cookie(name: &str, value: &str, path: &str, expires: i64, secure: bool) -> HeaderValue {
     let when = chrono::DateTime::from_timestamp(expires.max(1), 0).unwrap_or_default();
     let mut c = format!(
@@ -509,8 +447,6 @@ fn redirect(to: &str) -> Response {
     (StatusCode::FOUND, [(header::LOCATION, to.to_string())]).into_response()
 }
 
-/// Lets a request through only when it carries a live session. Pages without
-/// one are sent to log in; API and camera requests get a 401.
 async fn guard(State(auth): State<Authenticator>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     if OPEN_PATHS.contains(&path) {
@@ -528,8 +464,6 @@ async fn guard(State(auth): State<Authenticator>, req: Request, next: Next) -> R
         }
         return redirect(&to);
     };
-    // Sliding expiry: extend the session and re-issue the cookie (which the
-    // browser would otherwise drop at its old expiry), at most once an hour.
     let until = auth.now() + (auth.inner.session_length)();
     let mut resp = next.run(req).await;
     if session.expires < until - EXTEND_EVERY {
@@ -552,8 +486,6 @@ async fn login(
     uri: axum::http::Uri,
     query: Query,
 ) -> Response {
-    // The callback lands on PUBLIC_URL, so the state cookie must be set on that
-    // host. Move a login started on another address (e.g. a LAN IP) there.
     let host = headers
         .get(header::HOST)
         .and_then(|h| h.to_str().ok())
@@ -594,8 +526,6 @@ async fn login(
         .set_pkce_challenge(challenge)
         .url();
     let mut resp = redirect(to.as_str());
-    // Bind the login to this browser, so an attacker can't start a login and
-    // have a victim complete it.
     resp.headers_mut().append(
         header::SET_COOKIE,
         cookie(
@@ -609,9 +539,6 @@ async fn login(
     resp
 }
 
-/// Keeps the post-login redirect inside this app. Browsers treat a backslash
-/// as a slash, so "/\evil.example" means "//evil.example": reject backslashes,
-/// a leading "//", and anything that would leave this host.
 fn safe_next(next: &str) -> String {
     const HOME: &str = "/";
     if !next.starts_with('/') || next.starts_with("//") || next.contains('\\') {
@@ -634,14 +561,12 @@ async fn callback(State(auth): State<Authenticator>, headers: HeaderMap, query: 
     let arg = |k: &str| query.get(k).cloned().unwrap_or_default();
     let reason = arg("error");
     if !reason.is_empty() {
-        // The provider refused; don't loop back to it.
         return text(
             StatusCode::FORBIDDEN,
             format!("the login provider refused: {reason}"),
         );
     }
     let state = arg("state");
-    // Must be the browser that started this login.
     if read_cookie(&headers, LOGIN_COOKIE)
         .is_none_or(|started| started.is_empty() || started != state)
     {
@@ -650,7 +575,6 @@ async fn callback(State(auth): State<Authenticator>, headers: HeaderMap, query: 
             "that login was not started here, start again",
         );
     }
-    // Single use.
     let clear = cookie(LOGIN_COOKIE, "", "/auth", 1, auth.secure());
     let with_clear = |mut resp: Response| {
         resp.headers_mut().append(header::SET_COOKIE, clear.clone());
@@ -701,8 +625,6 @@ async fn callback(State(auth): State<Authenticator>, headers: HeaderMap, query: 
             "the provider returned no identity token",
         ));
     };
-    // Checks the signature, audience and expiry. The nonce is compared
-    // separately below, so a mismatch can be told apart.
     let any_nonce = |_: Option<&Nonce>| Ok(());
     let claims = match id_token.claims(&auth.inner.client.id_token_verifier(), any_nonce) {
         Ok(claims) => claims,
@@ -758,29 +680,30 @@ async fn callback(State(auth): State<Authenticator>, headers: HeaderMap, query: 
     resp
 }
 
-/// Returns where to go rather than redirecting: the page calls this with
-/// fetch, which can't follow a cross-origin redirect to the provider.
 async fn logout(State(auth): State<Authenticator>, headers: HeaderMap) -> Response {
     if let Some(session) = auth.session(&headers)
         && let Err(err) = auth.inner.store.end_session(&session.id)
     {
         tracing::warn!("auth: ending a session: {err}");
     }
-    let mut resp = json_reply(&json!({"then": auth.inner.end_session.as_deref().unwrap_or("/")}));
+    let mut resp = json_reply(&Logout {
+        then: auth.inner.end_session.as_deref().unwrap_or("/").to_string(),
+    });
     resp.headers_mut()
         .append(header::SET_COOKIE, auth.session_cookie("", 1));
     resp
 }
 
-/// Who is logged in, so the page can show it and offer to log out.
 async fn me(State(auth): State<Authenticator>, headers: HeaderMap) -> Response {
     match auth.session(&headers) {
-        Some(s) => json_reply(&json!({"name": s.name, "subject": s.subject})),
+        Some(s) => json_reply(&Me {
+            name: s.name,
+            subject: s.subject,
+        }),
         None => text(StatusCode::UNAUTHORIZED, "not logged in"),
     }
 }
 
-/// The cross-origin check, trusting PUBLIC_URL's origin when logins are on.
 pub fn cross_origin(auth: Option<&Authenticator>) -> CrossOrigin {
     CrossOrigin {
         trusted: auth.map(|a| vec![a.origin()]).unwrap_or_default(),

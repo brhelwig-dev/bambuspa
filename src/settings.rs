@@ -1,7 +1,3 @@
-//! The app's configuration, stored in the database so it can be changed from
-//! the page. Everything that consults a setting reads it at the point of use,
-//! so an edit takes effect without a restart.
-
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -9,34 +5,23 @@ use rusqlite::params;
 
 use crate::db::Db;
 
-// Names of the settings, as the page sends them.
-pub const CAMERA_STORAGE: &str = "camera-storage";
-pub const BED_OFF_AFTER: &str = "bed-off-after";
-pub const NOZZLE_OFF_AFTER: &str = "nozzle-off-after";
-pub const LAMP_OFF_AFTER: &str = "lamp-off-after";
-pub const ACTIVITY_LIMIT: &str = "activity-limit";
-pub const SESSION_LENGTH: &str = "session-length";
-
-/// The printer screen's sections, in order. Anything absent is hidden.
-pub const DASHBOARD: &str = "dashboard";
+pub use bambuspa_api::settings::{
+    ACTIVITY_LIMIT, BED_OFF_AFTER, CAMERA_STORAGE, DASHBOARD, LAMP_OFF_AFTER, NOZZLE_OFF_AFTER,
+    SESSION_LENGTH,
+};
 
 const TEXTS: &[&str] = &[DASHBOARD];
 
-/// Whether a setting holds words rather than a number.
 pub fn is_text(name: &str) -> bool {
     TEXTS.contains(&name)
 }
 
-/// Converts the stored megabytes to bytes.
 pub const BYTES_PER_MB: i64 = 1 << 20;
 
-/// One complete set of settings. Durations are in seconds, limits in bytes.
-/// The printers are kept in their own table.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Values {
     pub dashboard: String,
 
-    /// Bytes of camera frames kept, across every print; the oldest go first.
     pub camera_storage: i64,
     pub bed_off_after: i64,
     pub nozzle_off_after: i64,
@@ -46,8 +31,6 @@ pub struct Values {
 }
 
 impl Default for Values {
-    /// What an unconfigured app runs with, and what a value that cannot be
-    /// read falls back to.
     fn default() -> Self {
         Values {
             dashboard: String::new(),
@@ -67,7 +50,6 @@ enum Unit {
     Megabytes,
 }
 
-/// A numeric setting's unit and allowed range.
 #[derive(Clone, Copy)]
 struct Spec {
     unit: Unit,
@@ -84,7 +66,6 @@ impl Spec {
         (self.min..=self.max).contains(&value)
     }
 
-    /// Says what the setting will take, in the units it is written in.
     fn refuse(&self, name: &str) -> String {
         let (min, max) = (self.show(self.min), self.show(self.max));
         format!("{name} must be between {min} and {max}")
@@ -98,7 +79,6 @@ impl Spec {
     }
 }
 
-/// Renders seconds as hours, minutes and seconds, e.g. `1h0m0s`.
 fn show_duration(secs: i64) -> String {
     let (h, m, s) = (secs / 3600, secs % 3600 / 60, secs % 60);
     if h > 0 {
@@ -115,7 +95,6 @@ const DAY: i64 = 24 * 3600;
 fn spec(name: &str) -> Option<Spec> {
     Some(match name {
         CAMERA_STORAGE => Spec::new(Unit::Megabytes, 64, 64 * 1024),
-        // The bed and lamp are set in whole hours on the Settings screen.
         BED_OFF_AFTER => Spec::new(Unit::Seconds, 3600, 7 * DAY),
         NOZZLE_OFF_AFTER => Spec::new(Unit::Seconds, 60, 7 * DAY),
         LAMP_OFF_AFTER => Spec::new(Unit::Seconds, 3600, 7 * DAY),
@@ -125,7 +104,6 @@ fn spec(name: &str) -> Option<Spec> {
     })
 }
 
-/// Reads and writes the settings, caching the current values in memory.
 #[derive(Clone)]
 pub struct Settings {
     db: Db,
@@ -142,7 +120,6 @@ impl Settings {
         Ok(s)
     }
 
-    /// The current settings.
     pub fn values(&self) -> Values {
         self.values
             .read()
@@ -150,8 +127,6 @@ impl Settings {
             .clone()
     }
 
-    /// Stores one numeric setting, in seconds, megabytes or a count depending
-    /// on the setting.
     pub fn set(&self, name: &str, value: i64) -> Result<(), String> {
         let spec = spec(name).ok_or_else(|| format!("settings: unknown setting {name:?}"))?;
         if !spec.allows(value) {
@@ -160,7 +135,6 @@ impl Settings {
         self.put(name, &value.to_string())
     }
 
-    /// Stores one setting that holds words. An empty value clears it.
     pub fn set_text(&self, name: &str, value: &str) -> Result<(), String> {
         if !is_text(name) {
             return Err(format!("settings: {name:?} does not hold text"));
@@ -190,8 +164,6 @@ impl Settings {
         self.reload().map_err(|e| e.to_string())
     }
 
-    /// Reads every setting back into memory. An invalid stored value falls
-    /// back to its default.
     fn reload(&self) -> rusqlite::Result<()> {
         let stored: HashMap<String, String> = {
             let conn = self.db.lock();

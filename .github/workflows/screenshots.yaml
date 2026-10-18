@@ -3,12 +3,6 @@ name: screenshots
 on:
   pull_request:
 
-# Each screen is captured from the pull request and from its base branch, and
-# only the ones that look different are kept. Those are pushed to an orphan
-# branch and shown, before and after, in one comment on the pull request.
-# GitHub has no public way to attach an image to a comment, so the image has to
-# be reachable by URL before it can be shown; the orphan branch keeps them out
-# of the history of anything that ships.
 permissions:
   contents: write
   pull-requests: write
@@ -19,14 +13,11 @@ concurrency:
 
 jobs:
   capture:
-    # A pull request from a fork gets a read-only token, so it could capture but
-    # never comment. Skip rather than fail.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          # The base commit is built too, to compare against.
           fetch-depth: 0
 
       - uses: Swatinem/rust-cache@v2
@@ -45,11 +36,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          # No printer here. The app serves the page regardless, and the status
-          # endpoint is answered by the browser, so nothing depends on one.
-          # No login either: the app refuses to start without being told one way
-          # or the other, and there is no provider to point these at.
-          serve() { # binary, port
+          serve() {
             mkdir -p "/tmp/shot-data-$2"
             LISTEN_ADDR="127.0.0.1:$2" DATA_DIR="/tmp/shot-data-$2" AUTH_DISABLED=true "$1" &
             for i in $(seq 1 30); do
@@ -59,15 +46,16 @@ jobs:
             curl -sf "http://127.0.0.1:$2/healthz"
           }
 
-          build() { # source dir, output binary
+          build() {
+            if [ -f "$1/web/Cargo.toml" ]; then
+              .github/scripts/build-web.sh "$1" || return 1
+            fi
             (cd "$1" && cargo build --locked --target-dir "$GITHUB_WORKSPACE/target" && cp "$GITHUB_WORKSPACE/target/debug/bambuspa" "$2")
           }
 
           build . /tmp/bambuspa
           serve /tmp/bambuspa 8081
 
-          # The base branch is only something to compare against. If it cannot
-          # be built or started, every shot is shown rather than none.
           git worktree add --detach /tmp/base "$BASE_SHA"
           if build /tmp/base /tmp/bambuspa-base &&
              serve /tmp/bambuspa-base 8082; then
@@ -76,8 +64,6 @@ jobs:
             echo "::warning::could not run the base branch; showing every screen"
           fi
 
-      # Both captures use this branch's harness, so the states are staged the
-      # same way and any difference is the page's own.
       - name: Capture
         working-directory: .github/screenshots
         run: |
