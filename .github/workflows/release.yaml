@@ -1,16 +1,11 @@
 name: release
 
-# Every commit that lands on main and passes ci is released, versioned
-# YY.DOY.M (year, day of year, minute of day, UTC; see the tag step). It waits
-# on ci because the image is not rebuilt here: the one ci built for that commit
-# is given the version as a tag.
 on:
   workflow_run:
     workflows: [ci]
     types: [completed]
     branches: [main]
 
-# One at a time, so two merges close together cannot pick the same version.
 concurrency:
   group: release
 
@@ -37,14 +32,10 @@ jobs:
       - name: Pick the next version and tag the commit
         id: next
         run: |
-          # A rerun must not release the same commit twice.
           if git tag --points-at "$SHA" | grep -q '^[0-9]'; then
             echo "$SHA is already released"
             exit 0
           fi
-          # Year, day of year and minute of the day, all UTC and unpadded: a
-          # commit at 15:07 UTC on 6 October 2026 is 26.279.907. The `10#`
-          # keeps 08 and 09 from being read as octal.
           now=$(date -u +'%y %-j %H %M')
           set -- $now
           tag="$1.$2.$((10#$3 * 60 + 10#$4))"
@@ -56,8 +47,6 @@ jobs:
           git push origin "refs/tags/$tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  # Each platform builds on a runner that can build it (see build-dist.sh), and
-  # one job gathers them into the release.
   build:
     needs: tag
     if: needs.tag.outputs.tag != ''
@@ -86,8 +75,6 @@ jobs:
           path: web/dist
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
-      # The arm64 Windows image may lack rustup, and ring builds its code for
-      # that target with clang.
       - if: matrix.platform == 'windows/arm64'
         run: |
           if ! command -v rustup; then
@@ -125,8 +112,6 @@ jobs:
           path: dist
           merge-multiple: true
       - run: .github/scripts/build-dist.sh checksums dist
-      # The notes list the pull requests merged since the previous release,
-      # grouped by .github/release.yml.
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -136,9 +121,6 @@ jobs:
             --verify-tag \
             --generate-notes
 
-  # The released version is a new name for the exact manifest ci built and
-  # tested for this commit, not a rebuild. Rebuilding would silently pick up
-  # whatever rust and distroless base images have moved to since.
   image-tag:
     needs: tag
     if: needs.tag.outputs.tag != ''
