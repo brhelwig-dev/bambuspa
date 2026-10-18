@@ -28,7 +28,7 @@ pub fn EventsScreen() -> Element {
     let shown: Vec<api::Event> = list
         .iter()
         .flatten()
-        .filter(|e| wanted(*e))
+        .filter(|e| wanted(e))
         .cloned()
         .collect();
     let empty = match &list {
