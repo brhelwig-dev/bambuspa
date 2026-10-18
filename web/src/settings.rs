@@ -252,8 +252,8 @@ fn DashRow(
             save_dashboard(state, order, message);
         }
     };
-    let mut up = shift.clone();
-    let mut down = shift;
+    let up = shift.clone();
+    let down = shift;
     rsx! {
         div { class: "dashrow",
             label { r#for: "{box_id}", "{label}" }
