@@ -10,7 +10,7 @@ bambuspa-api = { path = "../api" }
 base64 = "0.23"
 dioxus = { version = "=0.7.10", features = ["web"] }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
-gloo-net = { version = "0.6", default-features = false, features = ["http", "json", "websocket"] }
+gloo-net = { version = "0.7", default-features = false, features = ["http", "json", "websocket"] }
 gloo-timers = { version = "0.4", features = ["futures"] }
 js-sys = "0.3"
 serde = { version = "1", features = ["derive"] }
