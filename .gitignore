@@ -1,3 +1,13 @@
 /target
 /web/dist
 .worktrees/
+
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.DocumentRevisions-V100
