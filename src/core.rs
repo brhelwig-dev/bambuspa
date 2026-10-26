@@ -16,10 +16,7 @@ pub enum Effect {
     SetNozzleTemp(i64),
     Lamp(bool),
     Notify(Notification),
-    RemindBed {
-        since: i64,
-        target: f64,
-    },
+    RemindBed { since: i64, target: f64 },
     ForgetBedReminders,
 }
 
