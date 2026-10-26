@@ -88,7 +88,7 @@ impl Harness {
 
     /// Connected to a fake printer reporting `state`.
     pub async fn with_printer(state: serde_json::Value) -> Harness {
-        let printer = printer::FakePrinter::start("127.0.0.1", 0, 0, "SERIAL1", "secret").await;
+        let printer = printer::FakePrinter::start("127.0.0.1", 0, 0, 0, "SERIAL1", "secret").await;
         printer.set_state(state);
         let h = Harness::start_in(tempdir(), crate::auth::Decision::Disabled, Some(printer)).await;
         h.configure();
@@ -106,6 +106,7 @@ impl Harness {
             .map(|p| crate::p1s::Ports {
                 mqtt: p.mqtt_port,
                 camera: p.camera_port,
+                ftp: p.ftp_port,
             })
             .unwrap_or_default();
         let app = crate::start(&dir, decision, ports, crate::clock::system())

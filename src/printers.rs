@@ -3,17 +3,17 @@ use std::sync::{Arc, RwLock};
 use bambuspa_api::{PrinterSummary, ServerMessage};
 use rusqlite::params;
 use serde_json::Value;
-use tokio::sync::{Notify, watch};
+use tokio::sync::watch;
 use tokio::task::AbortHandle;
 
 use crate::activity::Log;
 use crate::camera::Hub;
 use crate::clock::Clock;
 use crate::db::Db;
-use crate::history::{JobTracker, Store};
 use crate::p1s::{self, Config, Link, Ports, StateCache};
 use crate::push::Sender;
 use crate::settings::Settings;
+use crate::timelapses::Library;
 use crate::timers::Timers;
 use crate::web::Feed;
 
@@ -24,11 +24,10 @@ pub struct Printer {
     name: RwLock<String>,
     pub link: Link,
     pub cache: StateCache,
-    pub store: Store,
     pub timers: Timers,
     pub hub: Hub,
+    pub library: Library,
     pub feed: Feed,
-    pub jobs_changed: Arc<Notify>,
 }
 
 impl Printer {
@@ -43,7 +42,6 @@ pub struct Deps {
     pub settings: Settings,
     pub log: Log,
     pub sender: Sender,
-    pub store: Store,
     pub timers: Timers,
     pub clock: Clock,
     pub ports: Ports,
@@ -117,27 +115,24 @@ impl Printers {
             d.ports,
         );
         link.configure(conf);
-        let store = d.store.for_printer(id);
         let timers = d.timers.for_printer(id);
-        let hub = Hub::new(link.clone(), store.clone(), d.clock.clone());
+        let hub = Hub::new(link.clone(), d.clock.clone());
+        let library = Library::new(link.clone(), d.settings.clone());
         let printer = Arc::new(Printer {
             id,
             name: RwLock::new(name),
             link: link.clone(),
             cache: cache.clone(),
-            store: store.clone(),
             timers: timers.clone(),
             hub: hub.clone(),
+            library: library.clone(),
             feed: Feed::default(),
-            jobs_changed: Arc::default(),
         });
         let settings = d.settings.clone();
-        let reactor =
-            crate::core::Reactor::new(timers, JobTracker::new(store), move || settings.values());
+        let reactor = crate::core::Reactor::new(timers, move || settings.values());
         let runner = crate::core::Runner {
             link,
             sender: d.sender.clone(),
-            jobs_changed: printer.jobs_changed.clone(),
             clock: d.clock.clone(),
             printer: id,
             printers: self.clone(),
@@ -145,6 +140,7 @@ impl Printers {
         let tasks = vec![
             tokio::spawn(reactor.run(cache.subscribe(), runner)).abort_handle(),
             tokio::spawn(hub.run()).abort_handle(),
+            tokio::spawn(library.run()).abort_handle(),
             tokio::spawn(
                 printer
                     .feed
@@ -263,11 +259,6 @@ impl Printers {
             .execute("DELETE FROM printers WHERE id = ?", [id])
             .map_err(|e| e.to_string())?;
         entry.printer.timers.clear_all();
-        entry
-            .printer
-            .store
-            .delete_all()
-            .map_err(|e| e.to_string())?;
         d.sender.forget_bed_reminders(id)?;
         drop(entry);
         self.refresh_summary();
@@ -318,12 +309,6 @@ impl Printers {
 
     pub fn summary(&self) -> watch::Receiver<Arc<str>> {
         self.inner.summary.subscribe()
-    }
-
-    pub fn jobs_changed(&self) {
-        for p in self.list() {
-            p.jobs_changed.notify_one();
-        }
     }
 
     pub fn mqtt_port(&self) -> u16 {

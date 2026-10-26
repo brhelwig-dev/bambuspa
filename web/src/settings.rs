@@ -18,14 +18,14 @@ struct Field {
 
 const FIELDS: [Field; 6] = [
     Field {
-        id: "setCameraStorage",
-        name: api::settings::CAMERA_STORAGE,
+        id: "setTimelapseStorage",
+        name: api::settings::TIMELAPSE_STORAGE,
         per_unit: 1024.0,
-        label: "Camera history",
-        min: "0.25",
-        max: "64",
-        step: "0.25",
-        unit: "GB",
+        label: "Timelapses kept on the SD card",
+        min: "0",
+        max: "1024",
+        step: "0.5",
+        unit: "GB (0 keeps all)",
     },
     Field {
         id: "setBedOff",
@@ -81,7 +81,7 @@ const FIELDS: [Field; 6] = [
 
 fn stored(settings: &api::Settings, name: &str) -> i64 {
     match name {
-        api::settings::CAMERA_STORAGE => settings.camera_storage,
+        api::settings::TIMELAPSE_STORAGE => settings.timelapse_storage,
         api::settings::BED_OFF_AFTER => settings.bed_off_after,
         api::settings::NOZZLE_OFF_AFTER => settings.nozzle_off_after,
         api::settings::LAMP_OFF_AFTER => settings.lamp_off_after,
@@ -399,10 +399,7 @@ fn remove_printer(
     rows: Signal<Vec<api::PrinterInfo>>,
     printer: &api::PrinterInfo,
 ) {
-    let question = format!(
-        "Remove {}? Its camera history is deleted too.",
-        printer.name
-    );
+    let question = format!("Remove {}?", printer.name);
     if !js::window()
         .confirm_with_message(&question)
         .unwrap_or(false)

@@ -5,7 +5,7 @@ use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
-use bambuspa_api::{ClientMessage, Range, ServerMessage};
+use bambuspa_api::{ClientMessage, ServerMessage};
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
 
@@ -20,8 +20,7 @@ const PING_EVERY: Duration = Duration::from_secs(30);
 #[derive(Clone)]
 pub struct Feed {
     status: watch::Sender<Arc<str>>,
-    range: watch::Sender<Arc<str>>,
-    jobs: watch::Sender<Arc<str>>,
+    timelapses: watch::Sender<Arc<str>>,
 }
 
 impl Default for Feed {
@@ -29,8 +28,7 @@ impl Default for Feed {
         let empty = || watch::Sender::new(Arc::from(""));
         Feed {
             status: empty(),
-            range: empty(),
-            jobs: empty(),
+            timelapses: empty(),
         }
     }
 }
@@ -58,26 +56,17 @@ impl Feed {
         );
     }
 
-    fn range(&self, printer: &Printer) {
-        match super::camera::range_of(printer) {
-            Ok(range) => publish(&self.range, &ServerMessage::Range(range)),
-            Err(err) => tracing::warn!("live: camera range: {err}"),
-        }
-    }
-
-    fn jobs(&self, printer: &Printer) {
-        match printer.store.recent_jobs() {
-            Ok(jobs) => publish(&self.jobs, &ServerMessage::Jobs { jobs }),
-            Err(err) => tracing::warn!("live: jobs: {err}"),
-        }
+    fn timelapses(&self, printer: &Printer) {
+        let timelapses = printer.library.list().borrow().clone();
+        publish(&self.timelapses, &ServerMessage::Timelapses { timelapses });
     }
 
     pub async fn run(self, printer: Arc<Printer>, printers: Printers, clock: Clock) {
         let mut state = printer.cache.subscribe();
-        let mut frames = printer.hub.frames();
+        let mut timelapses = printer.library.list();
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         let mut next_status = Instant::now();
-        self.jobs(&printer);
+        self.timelapses(&printer);
         loop {
             let throttled = Instant::now() < next_status;
             tokio::select! {
@@ -90,17 +79,12 @@ impl Feed {
                     next_status = Instant::now() + STATUS_EVERY;
                 }
                 _ = tokio::time::sleep_until(next_status), if throttled => {}
-                _ = tick.tick() => {
-                    self.status(&printer, clock());
-                    self.range(&printer);
-                }
-                frame = frames.recv() => match frame {
-                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => self.range(&printer),
-                    Err(broadcast::error::RecvError::Closed) => return,
-                },
-                _ = printer.jobs_changed.notified() => {
-                    self.jobs(&printer);
-                    self.range(&printer);
+                _ = tick.tick() => self.status(&printer, clock()),
+                changed = timelapses.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    self.timelapses(&printer);
                 }
             }
         }
@@ -108,9 +92,8 @@ impl Feed {
 
     fn prime(&self, printer: &Printer, now: i64) {
         self.status(printer, now);
-        self.range(printer);
-        if self.jobs.borrow().is_empty() {
-            self.jobs(printer);
+        if self.timelapses.borrow().is_empty() {
+            self.timelapses(printer);
         }
     }
 }
@@ -146,8 +129,7 @@ fn same_origin(app: &App, headers: &HeaderMap) -> bool {
 struct Watching {
     printer: Option<Arc<Printer>>,
     status: watch::Receiver<Arc<str>>,
-    range: watch::Receiver<Arc<str>>,
-    jobs: watch::Receiver<Arc<str>>,
+    timelapses: watch::Receiver<Arc<str>>,
     frames: broadcast::Receiver<Frame>,
 }
 
@@ -158,8 +140,7 @@ impl Watching {
                 p.feed.prime(p, now);
                 Watching {
                     status: p.feed.status.subscribe(),
-                    range: p.feed.range.subscribe(),
-                    jobs: p.feed.jobs.subscribe(),
+                    timelapses: p.feed.timelapses.subscribe(),
                     frames: p.hub.frames(),
                     printer,
                 }
@@ -168,8 +149,9 @@ impl Watching {
                 let fixed = |msg: ServerMessage| watch::Sender::new(encode(&msg)).subscribe();
                 Watching {
                     status: fixed(ServerMessage::Status(Box::new(super::status_of(None, now)))),
-                    range: fixed(ServerMessage::Range(Range::default())),
-                    jobs: fixed(ServerMessage::Jobs { jobs: Vec::new() }),
+                    timelapses: fixed(ServerMessage::Timelapses {
+                        timelapses: Vec::new(),
+                    }),
                     frames: broadcast::Sender::new(1).subscribe(),
                     printer: None,
                 }
@@ -182,7 +164,7 @@ impl Watching {
     }
 
     fn current(&mut self) -> Vec<Message> {
-        [&mut self.status, &mut self.range, &mut self.jobs]
+        [&mut self.status, &mut self.timelapses]
             .into_iter()
             .map(|rx| rx.borrow_and_update().clone())
             .filter(|msg| !msg.is_empty())
@@ -227,8 +209,7 @@ async fn client(app: App, mut socket: WebSocket) {
                 msg
             }
             Ok(()) = watching.status.changed() => Message::Text(watching.status.borrow_and_update().as_ref().into()),
-            Ok(()) = watching.range.changed() => Message::Text(watching.range.borrow_and_update().as_ref().into()),
-            Ok(()) = watching.jobs.changed() => Message::Text(watching.jobs.borrow_and_update().as_ref().into()),
+            Ok(()) = watching.timelapses.changed() => Message::Text(watching.timelapses.borrow_and_update().as_ref().into()),
             frame = watching.frames.recv(), if following && watching.printer.is_some() => match frame {
                 Ok(frame) => binary_frame(frame.0, &frame.1),
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -279,8 +260,6 @@ fn binary_frame(ts: i64, jpeg: &[u8]) -> Message {
 }
 
 fn newest_frame(watching: &Watching) -> Option<Message> {
-    let store = &watching.printer.as_ref()?.store;
-    let (_, newest) = store.range().ok()?;
-    let (jpeg, ts) = store.frame_at_or_after(newest?).ok()??;
-    Some(binary_frame(ts, &jpeg))
+    let frame = watching.printer.as_ref()?.hub.latest()?;
+    Some(binary_frame(frame.0, &frame.1))
 }

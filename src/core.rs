@@ -1,5 +1,5 @@
-//! What the app does on its own as the printer's state changes: records print
-//! boundaries, sends notifications, drives the chamber lamp, shuts heaters off
+//! What the app does on its own as the printer's state changes: sends
+//! notifications, drives the chamber lamp, shuts heaters off
 //! after a while, and reminds about a bed left on.
 //!
 //! Every rule runs in one place, `Reactor::evaluate`, on every change to the
@@ -9,10 +9,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Notify, watch};
+use tokio::sync::watch;
 
 use crate::clock::{self, Clock};
-use crate::history::JobTracker;
 use crate::p1s::{self, HmsEntry, Link, Snapshot};
 use crate::printers::Printers;
 use crate::push::{self, Notification, Sender};
@@ -33,8 +32,6 @@ pub enum Effect {
     },
     /// The bed went off; every device's reminder schedule starts over.
     ForgetBedReminders,
-    /// A job row was opened or closed.
-    JobsChanged,
 }
 
 /// Heater shut-off: a bed or nozzle set hot through this app is turned off a
@@ -50,7 +47,6 @@ pub fn arm_heater(timers: &Timers, name: &str, temp: i64, now: i64, window: i64)
 
 pub struct Reactor {
     timers: Timers,
-    jobs: JobTracker,
     settings: Arc<dyn Fn() -> Values + Send + Sync>,
 
     /// Whether a connected snapshot has been seen yet. The first is only
@@ -71,18 +67,13 @@ pub struct Reactor {
 
 impl Reactor {
     /// Resumes from the timers pending when the process last stopped.
-    pub fn new(
-        timers: Timers,
-        jobs: JobTracker,
-        settings: impl Fn() -> Values + Send + Sync + 'static,
-    ) -> Reactor {
+    pub fn new(timers: Timers, settings: impl Fn() -> Values + Send + Sync + 'static) -> Reactor {
         // A pending lamp shut-off means the printer was idle when it was
         // armed, which is also what the first look would conclude. Saying so
         // here keeps that look from re-arming and losing the elapsed time.
         let lamp_observed = timers.get(timers::LAMP_OFF).is_some();
         Reactor {
             timers,
-            jobs,
             settings: Arc::new(settings),
             observed: false,
             was_busy: false,
@@ -104,9 +95,6 @@ impl Reactor {
         let nozzle_target = p1s::number(fields, "nozzle_target_temper").unwrap_or(0.0);
         let mut out = Vec::new();
 
-        if self.jobs.observe(state, &name, now) {
-            out.push(Effect::JobsChanged);
-        }
         self.auto_off(snap.connected, state, now, &mut out);
 
         // A disconnected printer reports nothing rather than its last known
@@ -289,7 +277,6 @@ impl Reactor {
 pub struct Runner {
     pub link: Link,
     pub sender: Sender,
-    pub jobs_changed: Arc<Notify>,
     pub clock: Clock,
     pub printer: i64,
     /// For the printer's name, which starts each notification once there is
@@ -329,7 +316,6 @@ impl Runner {
                     tracing::warn!("notify: clearing bed reminders: {err}");
                 }
             }
-            Effect::JobsChanged => self.jobs_changed.notify_one(),
         }
         None
     }
@@ -339,7 +325,6 @@ impl Runner {
 mod tests {
     use super::*;
     use crate::db::Db;
-    use crate::history::Store;
     use serde_json::{Value, json};
 
     const T0: i64 = 1_000_000;
@@ -347,8 +332,6 @@ mod tests {
     struct Fixture {
         reactor: Reactor,
         timers: Timers,
-        store: Store,
-        db: Db,
     }
 
     fn fixture() -> Fixture {
@@ -356,19 +339,9 @@ mod tests {
     }
 
     fn fixture_on(db: Db) -> Fixture {
-        let timers = Timers::new(db.clone()).unwrap();
-        let store = Store::new(db.clone());
-        let reactor = Reactor::new(
-            timers.clone(),
-            JobTracker::new(store.clone()),
-            Values::default,
-        );
-        Fixture {
-            reactor,
-            timers,
-            store,
-            db,
-        }
+        let timers = Timers::new(db).unwrap();
+        let reactor = Reactor::new(timers.clone(), Values::default);
+        Fixture { reactor, timers }
     }
 
     fn snap(connected: bool, fields: Value) -> Snapshot {
@@ -761,24 +734,5 @@ mod tests {
             Some(T0 + 8 * 3600),
             "not re-armed"
         );
-    }
-
-    // Job rows.
-
-    #[test]
-    fn job_rows_follow_the_print() {
-        let mut f = fixture();
-        assert!(has(
-            &f.at(0, &printer("RUNNING", "a")),
-            &Effect::JobsChanged
-        ));
-        assert!(!has(
-            &f.at(1, &printer("RUNNING", "a")),
-            &Effect::JobsChanged
-        ));
-        assert!(has(&f.at(2, &printer("FINISH", "a")), &Effect::JobsChanged));
-        let jobs = f.store.recent_jobs().unwrap();
-        assert_eq!((jobs[0].start, jobs[0].end), (T0, Some(T0 + 2)));
-        let _ = &f.db;
     }
 }

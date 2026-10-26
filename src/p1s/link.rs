@@ -31,6 +31,7 @@ impl Config {
 pub struct Ports {
     pub mqtt: u16,
     pub camera: u16,
+    pub ftp: u16,
 }
 
 impl Default for Ports {
@@ -38,6 +39,7 @@ impl Default for Ports {
         Ports {
             mqtt: 8883,
             camera: 6000,
+            ftp: 990,
         }
     }
 }
@@ -106,6 +108,10 @@ impl Link {
 
     pub fn camera_port(&self) -> u16 {
         self.ports.camera
+    }
+
+    pub fn ftp_port(&self) -> u16 {
+        self.ports.ftp
     }
 
     /// Runs `f` against the current client. Commands are already refused by

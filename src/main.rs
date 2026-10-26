@@ -1,27 +1,25 @@
 //! bambuspa serves a phone-friendly control page for Bambu P1S printers on the
 //! local network: bed actions and live status over each printer's MQTT
-//! interface, and its chamber camera, recorded continuously into a rolling
-//! history buffer.
+//! interface, its chamber camera, and the timelapses on its SD card.
 
 mod activity;
 mod auth;
+mod avi;
 mod camera;
-mod capacity;
 mod clock;
 mod core;
 mod db;
-mod history;
 mod p1s;
 mod printers;
 mod push;
 mod settings;
 #[cfg(test)]
 mod testing;
+mod timelapses;
 mod timers;
 mod web;
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
@@ -42,7 +40,7 @@ pub fn random_token() -> String {
 /// The database file inside DATA_DIR.
 const DB_FILE: &str = "bambuspa.sqlite";
 
-/// How often the camera footage is held to its size.
+/// How often space freed in the database is returned to the disk.
 const HOUSEKEEPING_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// The assembled program — everything below `main` — so it can be started
@@ -74,7 +72,6 @@ pub async fn start(
         clock.clone(),
     )
     .map_err(|e| format!("open event log: {e}"))?;
-    let store = history::Store::new(db.clone());
     let sender = push::Sender::new(db.clone(), events.clone(), clock.clone())
         .map_err(|e| format!("load notification identity: {e}"))?;
     let timers =
@@ -104,7 +101,6 @@ pub async fn start(
         settings: settings.clone(),
         log: events.clone(),
         sender: sender.clone(),
-        store: store.clone(),
         timers,
         clock: clock.clone(),
         ports,
@@ -122,7 +118,7 @@ pub async fn start(
     };
 
     tokio::spawn(logins.run_sweeper(clock.clone()));
-    tokio::spawn(housekeeping(db, store, settings, printers.clone()));
+    tokio::spawn(housekeeping(db));
 
     let mut router = web::router(app);
     if let Some(auth) = &authenticator {
@@ -135,38 +131,16 @@ pub async fn start(
     Ok(Started { router, printers })
 }
 
-/// Holds the camera footage to its size, oldest first, every few minutes,
-/// forever.
-async fn housekeeping(
-    db: db::Db,
-    store: history::Store,
-    settings: settings::Settings,
-    printers: Printers,
-) {
-    let limits = settings.clone();
-    let enforcer = Arc::new(capacity::Enforcer::new(
-        db,
-        move || limits.values().camera_storage,
-        vec![Box::new(store.clone())],
-    ));
+async fn housekeeping(db: db::Db) {
     let mut tick = tokio::time::interval(HOUSEKEEPING_EVERY);
-    tick.tick().await;
     loop {
         tick.tick().await;
-        let (store, enforcer) = (store.clone(), enforcer.clone());
-        let done = tokio::task::spawn_blocking(move || {
-            if let Err(err) = enforcer.once() {
-                tracing::warn!("capacity: {err}");
-            }
-            if let Err(err) = store.forget_unrecorded_jobs() {
-                tracing::warn!("history: forgetting jobs: {err}");
-            }
-        })
-        .await;
-        if let Err(err) = done {
-            tracing::warn!("housekeeping: {err}");
+        let db = db.clone();
+        match tokio::task::spawn_blocking(move || db.reclaim()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => tracing::warn!("housekeeping: returning freed space: {err}"),
+            Err(err) => tracing::warn!("housekeeping: {err}"),
         }
-        printers.jobs_changed();
     }
 }
 

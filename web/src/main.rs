@@ -32,8 +32,7 @@ pub struct State {
     pub current: Signal<Option<i64>>,
     pub status: Signal<Option<api::Status>>,
     pub reachable: Signal<bool>,
-    pub range: Signal<api::Range>,
-    pub jobs: Signal<Vec<api::Job>>,
+    pub timelapses: Signal<Vec<api::Timelapse>>,
     pub dashboard: Signal<Vec<String>>,
     pub camera: Camera,
 }
@@ -51,8 +50,7 @@ impl State {
             current: Signal::new(current),
             status: Signal::new(None),
             reachable: Signal::new(true),
-            range: Signal::new(api::Range::default()),
-            jobs: Signal::new(Vec::new()),
+            timelapses: Signal::new(Vec::new()),
             dashboard: Signal::new(
                 dashboard::SECTIONS
                     .iter()

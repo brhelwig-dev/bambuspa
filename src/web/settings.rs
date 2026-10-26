@@ -11,7 +11,7 @@ const SHOWN_EVENTS: usize = 500;
 pub async fn get(State(app): State<App>) -> Response {
     let v = app.settings.values();
     json_reply(&bambuspa_api::Settings {
-        camera_storage: v.camera_storage / BYTES_PER_MB,
+        timelapse_storage: v.timelapse_storage / BYTES_PER_MB,
         bed_off_after: v.bed_off_after,
         nozzle_off_after: v.nozzle_off_after,
         lamp_off_after: v.lamp_off_after,

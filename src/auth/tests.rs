@@ -826,7 +826,10 @@ async fn a_post_from_another_origin_is_refused_but_the_public_one_is_trusted() {
         .join("; ");
     let post = |origin: &str, site: &str| {
         b.http
-            .post(format!("{}/api/settings/camera-storage?value=512", s.url))
+            .post(format!(
+                "{}/api/settings/timelapse-storage?value=512",
+                s.url
+            ))
             .header("cookie", cookie.clone())
             .header("origin", origin.to_string())
             .header("sec-fetch-site", site.to_string())

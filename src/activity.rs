@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use bambuspa_api::Event;
 use rusqlite::params;
 
-use crate::capacity::{Item, Source};
 use crate::clock::Clock;
 use crate::db::Db;
 
@@ -213,40 +212,6 @@ fn truncate(payload: &str) -> std::borrow::Cow<'_, str> {
     format!("{}… (truncated)", &payload[..end]).into()
 }
 
-impl Source for Log {
-    fn name(&self) -> &'static str {
-        "event log"
-    }
-
-    fn oldest(&self, n: usize) -> rusqlite::Result<Vec<Item>> {
-        let conn = self.db.lock();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT id, at, {SIZE} FROM activity ORDER BY id ASC LIMIT ?"
-        ))?;
-        stmt.query_map([n as i64], |r| {
-            Ok(Item {
-                id: r.get(0)?,
-                when: r.get(1)?,
-                bytes: r.get(2)?,
-            })
-        })?
-        .collect()
-    }
-
-    fn delete_through(&self, id: i64) -> rusqlite::Result<()> {
-        let mut bytes = self.bytes.lock().unwrap_or_else(|p| p.into_inner());
-        self.db
-            .lock()
-            .execute("DELETE FROM activity WHERE id <= ?", [id])?;
-        *bytes = total(&self.db)?;
-        Ok(())
-    }
-
-    fn total_bytes(&self) -> rusqlite::Result<i64> {
-        total(&self.db)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,18 +300,5 @@ mod tests {
         log.record(REPORT, "report", "abc");
         let again = Log::new(db, || 1 << 20, fake.clock()).unwrap();
         assert_eq!(again.bytes(), log.bytes());
-    }
-
-    #[test]
-    fn source_for_the_size_cap() {
-        let (log, _, _) = log(1 << 20);
-        let a = log.record(REPORT, "a", "1").unwrap();
-        log.record(REPORT, "b", "22");
-        let items = log.oldest(10).unwrap();
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0].bytes, 2 + ROW_OVERHEAD);
-        log.delete_through(a).unwrap();
-        assert_eq!(log.entries(10).len(), 1);
-        assert_eq!(log.bytes(), 3 + ROW_OVERHEAD);
     }
 }

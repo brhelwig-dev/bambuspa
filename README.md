@@ -15,7 +15,7 @@ same network, holds those connections, and serves a mobile web page.
   controls are about; each chip shows whether that printer is connected and
   how far its print has got.
 - Every printer stays connected whichever one is shown, so each keeps
-  recording its camera and sending its notifications. Once there is more than
+  its camera and its timelapse list and sending its notifications. Once there is more than
   one, notifications start with the printer's name.
 
 **Controls**
@@ -36,13 +36,13 @@ unless they match the printer's state.
 - AMS trays (colour, material, nozzle range) and desiccant grade (A–E)
 - Printer errors shown as readable messages, translated from HMS and
   `print_error` codes
-- Chamber camera at ~1 fps, recorded into a rolling buffer (1 GB by
-  default; the oldest frames go first). The view follows the live image; a
-  scrub bar goes back through the buffer. During a print it starts 5 minutes
-  before the print did.
-- Recent prints are listed under the camera and can be played back as a
-  timelapse at 30x, 60x, 300x or 600x, for as long as their footage is still
-  in the buffer.
+- Live chamber camera at ~1 fps.
+- The timelapses the printer records on its SD card are listed under the
+  camera, with their thumbnails, and play in the camera view with a scrub bar.
+  The printer records one when timelapse is turned on in Bambu Studio for that
+  print. Once the timelapses on the card pass a size set in Settings (4 GB by
+  default), the oldest are deleted until they are under 90% of it; the newest
+  is always kept.
 
 bambuspa keeps the camera connection open the whole time it runs. The
 printer serves only one camera client, so Bambu Studio's camera view won't
@@ -67,7 +67,7 @@ Screen.
 **Settings and diagnostics**
 
 - A Settings screen for the printers, notifications, how much
-  camera history to keep (1 GB by default), auto-off delays, event log size,
+  space timelapses may take on the SD card (4 GB by default), auto-off delays, event log size,
   login length, theme (light/dark/system), and which status sections are shown
   and in what order. Changes apply when saved.
 - Saving a printer first checks it answers, and says what is wrong if it
@@ -75,7 +75,6 @@ Screen.
 - An Events screen listing commands sent, printer acknowledgements and
   reports, and notifications sent, each with the raw message. It is stored in
   the database (64 MB by default) so it survives restarts.
-- Once camera history reaches its size, the oldest frames are deleted first.
 - Can be added to the iOS Home Screen as a full-screen app.
 
 ## Printer setup
@@ -161,7 +160,7 @@ last use by default (configurable in Settings).
 
 ### Data
 
-`DATA_DIR` holds `bambuspa.sqlite`: the camera buffer, event log, settings
+`DATA_DIR` holds `bambuspa.sqlite`: the event log, settings
 (including the printer's access code), notification subscriptions and pending
 auto-off timers. Put it on a persistent volume: losing it also loses the push
 signing key, which unsubscribes every device. The database uses WAL mode, so
@@ -195,11 +194,11 @@ page a reload shows it without restarting the server.
 The workspace has three crates: the server at the root, `api` with the JSON
 shapes the server and the page share, and `web`, the page.
 
-The fake printer serves the printer's MQTT and camera ports on 127.0.0.1 with
+The fake printer serves the printer's MQTT, camera and FTP ports on 127.0.0.1 with
 a print under way. Run the app alongside it (`AUTH_DISABLED=true cargo run`) and
 set the printer to `127.0.0.1`, serial `FAKE0001`, access code `12345678`.
 
-The page gets its live data — status, the camera, recent prints — over one
+The page gets its live data — status, the camera, the timelapse list — over one
 websocket at `/api/live`; everything else is plain HTTP.
 
 ## Protocol notes
@@ -214,3 +213,9 @@ websocket at `/api/live`; everything else is plain HTTP.
   first four bytes are the little-endian image size. Based on
   [ha-bambulab](https://github.com/greghesp/ha-bambulab)'s chamber-image
   client.
+- **SD card:** FTP with implicit TLS on :990, username `bblp`, password is the
+  LAN access code, and TLS on each passive data connection. Timelapses are
+  `/timelapse/video_YYYY-MM-DD_HH-MM-SS.avi` (motion-JPEG), with thumbnails at
+  `/timelapse/thumbnail/<same name>.jpg`. The server answers `502` to `FEAT`,
+  `MLSD`, `STAT`, `SITE` and every free-space command, and accepts five logins
+  at once.

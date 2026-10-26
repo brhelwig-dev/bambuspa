@@ -133,17 +133,25 @@ INSERT INTO bed_reminders (endpoint, printer_id, at)
   WHERE bed_reminded_ts > 0 AND EXISTS (SELECT 1 FROM printers);
 ALTER TABLE subscriptions DROP COLUMN bed_reminded_ts;
 "#,
+    r#"
+-- The printer's own timelapses on its SD card replace the recorded footage.
+DROP TABLE frames;
+DROP TABLE jobs;
+DELETE FROM settings WHERE name = 'camera-storage';
+"#,
 ];
+
+/// How many pages one incremental vacuum returns, kept small so the write lock
+/// is held briefly.
+const RECLAIM_CHUNK: i64 = 256;
 
 impl Db {
     /// Opens (creating if needed) the database at `path` and brings its schema
     /// up to date. `":memory:"` gives a private in-memory database.
     pub fn open(path: impl AsRef<Path>) -> rusqlite::Result<Db> {
         let conn = Connection::open(path)?;
-        // A writer waits for the lock rather than failing; WAL lets reads run
-        // during a write. Incremental auto-vacuum lets the size cap hand freed
-        // space back a little at a time. It only takes effect before the first
-        // table exists, which is why it comes before the migrations.
+        // Incremental auto-vacuum only takes effect before the first table
+        // exists, which is why it comes before the migrations.
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
         conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
@@ -157,12 +165,35 @@ impl Db {
         Db::open(":memory:").expect("open in-memory database")
     }
 
-    /// Locks the connection. Hold it only for the statements at hand.
     pub fn lock(&self) -> MutexGuard<'_, Connection> {
-        // A panic while holding the lock leaves the connection usable.
         self.0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Returns freed pages to the disk a chunk at a time, taking the lock
+    /// afresh for each chunk.
+    pub fn reclaim(&self) -> rusqlite::Result<()> {
+        loop {
+            let conn = self.lock();
+            let free: i64 = conn.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+            if free == 0 {
+                return Ok(());
+            }
+            conn.execute_batch(&format!("PRAGMA incremental_vacuum({RECLAIM_CHUNK})"))?;
+        }
+    }
+
+    #[cfg(test)]
+    fn file_size(&self) -> i64 {
+        let conn = self.lock();
+        let pages: i64 = conn
+            .query_row("PRAGMA page_count", [], |r| r.get(0))
+            .unwrap();
+        let size: i64 = conn
+            .query_row("PRAGMA page_size", [], |r| r.get(0))
+            .unwrap();
+        pages * size
     }
 }
 
@@ -195,13 +226,14 @@ mod tests {
         assert_eq!(version as usize, MIGRATIONS.len());
     }
 
-    /// A version 1 database, with `sql` run against it.
+    /// A version 1 database, with `sql` run against it, brought to version 2.
     fn version_one(sql: &str) -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(&format!("{}; PRAGMA user_version = 1;", MIGRATIONS[0]))
             .unwrap();
         conn.execute_batch(sql).unwrap();
-        migrate(&conn).unwrap();
+        conn.execute_batch(&format!("{}; PRAGMA user_version = 2;", MIGRATIONS[1]))
+            .unwrap();
         conn
     }
 
@@ -263,6 +295,42 @@ mod tests {
         assert!(all(&conn, "SELECT name FROM jobs").is_empty());
         assert!(all(&conn, "SELECT name FROM deadlines").is_empty());
         assert!(all(&conn, "SELECT endpoint FROM bed_reminders").is_empty());
+    }
+
+    #[test]
+    fn version_three_drops_the_footage_and_its_setting() {
+        let conn = version_one(&format!(
+            "INSERT INTO settings VALUES ('printer-ip', '10.0.0.5'), ('printer-serial', 'S1'),
+               ('printer-access-code', 'c'), ('camera-storage', '2048'), ('bed-off-after', '7200');
+             {OLD_DATA}"
+        ));
+        migrate(&conn).unwrap();
+        assert_eq!(all(&conn, "SELECT name FROM settings"), ["bed-off-after"]);
+        assert!(
+            all(
+                &conn,
+                "SELECT name FROM sqlite_master WHERE name IN ('frames', 'jobs')"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn deleting_alone_does_not_shrink_the_file_and_reclaiming_does() {
+        let db = Db::open(crate::testing::tempdir().join("reclaim.sqlite")).unwrap();
+        for i in 0..400 {
+            db.lock()
+                .execute(
+                    "INSERT INTO activity (at, kind, summary) VALUES (?, 'report', ?)",
+                    rusqlite::params![i, "x".repeat(8000)],
+                )
+                .unwrap();
+        }
+        let before = db.file_size();
+        db.lock().execute("DELETE FROM activity", []).unwrap();
+        assert_eq!(db.file_size(), before);
+        db.reclaim().unwrap();
+        assert!(db.file_size() < before / 10);
     }
 
     #[test]

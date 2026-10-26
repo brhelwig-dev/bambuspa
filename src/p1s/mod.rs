@@ -1,7 +1,8 @@
-//! The Bambu P1-series local protocols: MQTT state and commands on :8883, and
-//! the chamber-camera stream on :6000.
+//! The Bambu P1-series local protocols: MQTT state and commands on :8883, the
+//! chamber-camera stream on :6000, and the SD card over FTP on :990.
 
 mod camera;
+pub mod ftp;
 mod hms;
 mod link;
 pub mod mqtt;

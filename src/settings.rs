@@ -6,8 +6,8 @@ use rusqlite::params;
 use crate::db::Db;
 
 pub use bambuspa_api::settings::{
-    ACTIVITY_LIMIT, BED_OFF_AFTER, CAMERA_STORAGE, DASHBOARD, LAMP_OFF_AFTER, NOZZLE_OFF_AFTER,
-    SESSION_LENGTH,
+    ACTIVITY_LIMIT, BED_OFF_AFTER, DASHBOARD, LAMP_OFF_AFTER, NOZZLE_OFF_AFTER, SESSION_LENGTH,
+    TIMELAPSE_STORAGE,
 };
 
 const TEXTS: &[&str] = &[DASHBOARD];
@@ -22,7 +22,7 @@ pub const BYTES_PER_MB: i64 = 1 << 20;
 pub struct Values {
     pub dashboard: String,
 
-    pub camera_storage: i64,
+    pub timelapse_storage: i64,
     pub bed_off_after: i64,
     pub nozzle_off_after: i64,
     pub lamp_off_after: i64,
@@ -34,7 +34,7 @@ impl Default for Values {
     fn default() -> Self {
         Values {
             dashboard: String::new(),
-            camera_storage: 1024 * BYTES_PER_MB,
+            timelapse_storage: 4096 * BYTES_PER_MB,
             bed_off_after: 24 * 3600,
             nozzle_off_after: 15 * 60,
             lamp_off_after: 8 * 3600,
@@ -94,7 +94,7 @@ const DAY: i64 = 24 * 3600;
 
 fn spec(name: &str) -> Option<Spec> {
     Some(match name {
-        CAMERA_STORAGE => Spec::new(Unit::Megabytes, 64, 64 * 1024),
+        TIMELAPSE_STORAGE => Spec::new(Unit::Megabytes, 0, 1024 * 1024),
         BED_OFF_AFTER => Spec::new(Unit::Seconds, 3600, 7 * DAY),
         NOZZLE_OFF_AFTER => Spec::new(Unit::Seconds, 60, 7 * DAY),
         LAMP_OFF_AFTER => Spec::new(Unit::Seconds, 3600, 7 * DAY),
@@ -182,7 +182,8 @@ impl Settings {
         let text = |name: &str| stored.get(name).cloned().unwrap_or_default();
         let v = Values {
             dashboard: text(DASHBOARD),
-            camera_storage: num(CAMERA_STORAGE, d.camera_storage / BYTES_PER_MB) * BYTES_PER_MB,
+            timelapse_storage: num(TIMELAPSE_STORAGE, d.timelapse_storage / BYTES_PER_MB)
+                * BYTES_PER_MB,
             bed_off_after: num(BED_OFF_AFTER, d.bed_off_after),
             nozzle_off_after: num(NOZZLE_OFF_AFTER, d.nozzle_off_after),
             lamp_off_after: num(LAMP_OFF_AFTER, d.lamp_off_after),
@@ -210,11 +211,11 @@ mod tests {
     #[test]
     fn set_is_read_back_in_its_units() {
         let s = store();
-        s.set(CAMERA_STORAGE, 2048).unwrap();
+        s.set(TIMELAPSE_STORAGE, 2048).unwrap();
         s.set(ACTIVITY_LIMIT, 2).unwrap();
         s.set(BED_OFF_AFTER, 7200).unwrap();
         let v = s.values();
-        assert_eq!(v.camera_storage, 2048 * BYTES_PER_MB);
+        assert_eq!(v.timelapse_storage, 2048 * BYTES_PER_MB);
         assert_eq!(v.activity_limit, 2 * BYTES_PER_MB);
         assert_eq!(v.bed_off_after, 7200);
     }
@@ -241,8 +242,8 @@ mod tests {
             "nozzle-off-after must be between 1m0s and 168h0m0s"
         );
         assert_eq!(
-            s.set(CAMERA_STORAGE, 10).unwrap_err(),
-            "camera-storage must be between 64 MB and 65536 MB"
+            s.set(TIMELAPSE_STORAGE, -1).unwrap_err(),
+            "timelapse-storage must be between 0 MB and 1048576 MB"
         );
         assert_eq!(
             s.set(ACTIVITY_LIMIT, 0).unwrap_err(),
@@ -260,11 +261,11 @@ mod tests {
         let db = Db::memory();
         db.lock()
             .execute_batch(
-                "INSERT INTO settings VALUES ('camera-storage', 'x'), ('lamp-off-after', '1')",
+                "INSERT INTO settings VALUES ('timelapse-storage', 'x'), ('lamp-off-after', '1')",
             )
             .unwrap();
         let v = Settings::new(db).unwrap().values();
-        assert_eq!(v.camera_storage, Values::default().camera_storage);
+        assert_eq!(v.timelapse_storage, Values::default().timelapse_storage);
         assert_eq!(v.lamp_off_after, Values::default().lamp_off_after);
     }
 
@@ -279,7 +280,7 @@ mod tests {
             s.set_text(DASHBOARD, &"x".repeat(513)).unwrap_err(),
             "dashboard is too long"
         );
-        assert!(s.set_text(CAMERA_STORAGE, "1").is_err());
-        assert!(is_text(DASHBOARD) && !is_text(CAMERA_STORAGE));
+        assert!(s.set_text(TIMELAPSE_STORAGE, "1").is_err());
+        assert!(is_text(DASHBOARD) && !is_text(TIMELAPSE_STORAGE));
     }
 }
