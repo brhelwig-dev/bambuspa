@@ -38,7 +38,9 @@ unless they match the printer's state.
   `print_error` codes
 - Live chamber camera at ~1 fps.
 - The timelapses the printer records on its SD card are listed under the
-  camera, with their thumbnails, and play in the camera view with a scrub bar.
+  camera, five at a time with the rest a scroll away, each with its thumbnail.
+  Play opens a player with a scrub bar under that timelapse; the camera view
+  above stays live.
   The printer records one when timelapse is turned on in Bambu Studio for that
   print. Once the timelapses on the card pass a size set in Settings (4 GB by
   default), the oldest are deleted until they are under 90% of it; the newest
