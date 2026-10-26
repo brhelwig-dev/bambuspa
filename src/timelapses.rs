@@ -1,7 +1,3 @@
-//! The timelapses the printer records on its SD card when Bambu Studio asks
-//! for one: listed every few minutes, held under the size set in Settings by
-//! deleting the oldest, and played by downloading one at a time.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -52,7 +48,6 @@ impl Library {
         }))
     }
 
-    /// Newest first.
     pub fn list(&self) -> watch::Receiver<Vec<Timelapse>> {
         self.0.list.subscribe()
     }
@@ -140,8 +135,6 @@ impl Library {
         }
     }
 
-    /// The printer accepts only a few FTP logins at once, so each printer uses
-    /// one at a time.
     async fn connect(&self) -> std::io::Result<Session<'_>> {
         let guard = self.0.session.lock().await;
         let conf = self.0.link.config();
@@ -176,9 +169,6 @@ fn thumbnail_of(name: &str) -> String {
     format!("{DIR}/thumbnail/{}.jpg", name.trim_end_matches(".avi"))
 }
 
-/// Deletes the oldest of `videos` (sorted oldest first) until they fit under
-/// LOW_WATER of `cap`, once they exceed it. The newest is kept, since the
-/// printer may still be recording it.
 async fn prune(ftp: &mut Ftp, videos: &mut Vec<Timelapse>, cap: i64) -> std::io::Result<()> {
     let mut total: i64 = videos.iter().map(|v| v.bytes).sum();
     if cap <= 0 || total <= cap {

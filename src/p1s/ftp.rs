@@ -1,6 +1,3 @@
-//! The printer's FTP server on :990, which serves its SD card. It speaks
-//! implicit TLS, and TLS again on each data connection.
-
 use std::io;
 use std::time::Duration;
 
@@ -65,8 +62,6 @@ impl Ftp {
         self.command(&format!("DELE {path}"), &[250]).await
     }
 
-    /// Opens a passive data connection for `cmd`, as Python's ftplib does:
-    /// connect, send the command, and only then start TLS on the connection.
     async fn transfer(&mut self, cmd: &str) -> io::Result<TlsStream<TcpStream>> {
         self.send("PASV").await?;
         let (code, text) = self.reply().await?;
@@ -131,8 +126,6 @@ impl Ftp {
     }
 }
 
-/// Reads a data connection to its end. The printer may close it without a TLS
-/// close_notify; the reply that follows says whether the transfer completed.
 async fn read_all<R: AsyncRead + Unpin>(r: &mut R, max: u64) -> io::Result<Vec<u8>> {
     let mut out = Vec::new();
     let mut buf = vec![0u8; 64 << 10];
@@ -173,8 +166,6 @@ fn invalid(msg: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg)
 }
 
-/// The port from `227 Entering Passive Mode (h1,h2,h3,h4,p1,p2)`. The address
-/// is ignored in favour of the one already dialled.
 fn pasv_port(text: &str) -> Option<u16> {
     let inside = text.get(text.find('(')? + 1..text.rfind(')')?)?;
     let numbers: Vec<u16> = inside
@@ -187,8 +178,6 @@ fn pasv_port(text: &str) -> Option<u16> {
     }
 }
 
-/// One line of a Unix-style `LIST`, e.g.
-/// `-rw-rw-rw- 1 root root 5505722 Jul 23 10:49 video_2026-07-23_08-45-39.avi`.
 fn parse_list_line(line: &str) -> Option<Entry> {
     let mut rest = line.trim_end();
     let mut fields = Vec::with_capacity(8);

@@ -196,7 +196,9 @@ shapes the server and the page share, and `web`, the page.
 
 The fake printer serves the printer's MQTT, camera and FTP ports on 127.0.0.1 with
 a print under way. Run the app alongside it (`AUTH_DISABLED=true cargo run`) and
-set the printer to `127.0.0.1`, serial `FAKE0001`, access code `12345678`.
+set the printer to `127.0.0.1`, serial `FAKE0001`, access code `12345678`. Its FTP
+server listens on port 990, which on Linux needs
+`sudo sysctl net.ipv4.ip_unprivileged_port_start=990` first.
 
 The page gets its live data — status, the camera, the timelapse list — over one
 websocket at `/api/live`; everything else is plain HTTP.

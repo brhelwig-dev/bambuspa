@@ -1,18 +1,11 @@
-//! The app's SQLite database: one file, one connection, shared by every store.
-
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::Connection;
 
-/// A handle every store shares. One connection is enough for this app, and it
-/// makes `:memory:` work in tests (a second connection would see a separate,
-/// empty database).
 #[derive(Clone)]
 pub struct Db(Arc<Mutex<Connection>>);
 
-/// The schema, one entry per version. `PRAGMA user_version` records how many
-/// have been applied. Add new versions at the end; never edit an applied one.
 const MIGRATIONS: &[&str] = &[
     r#"
 CREATE TABLE settings (
@@ -141,17 +134,11 @@ DELETE FROM settings WHERE name = 'camera-storage';
 "#,
 ];
 
-/// How many pages one incremental vacuum returns, kept small so the write lock
-/// is held briefly.
 const RECLAIM_CHUNK: i64 = 256;
 
 impl Db {
-    /// Opens (creating if needed) the database at `path` and brings its schema
-    /// up to date. `":memory:"` gives a private in-memory database.
     pub fn open(path: impl AsRef<Path>) -> rusqlite::Result<Db> {
         let conn = Connection::open(path)?;
-        // Incremental auto-vacuum only takes effect before the first table
-        // exists, which is why it comes before the migrations.
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
         conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
@@ -159,7 +146,6 @@ impl Db {
         Ok(Db(Arc::new(Mutex::new(conn))))
     }
 
-    /// A fresh in-memory database, for tests.
     #[cfg(test)]
     pub fn memory() -> Db {
         Db::open(":memory:").expect("open in-memory database")
@@ -171,8 +157,6 @@ impl Db {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Returns freed pages to the disk a chunk at a time, taking the lock
-    /// afresh for each chunk.
     pub fn reclaim(&self) -> rusqlite::Result<()> {
         loop {
             let conn = self.lock();
@@ -226,7 +210,6 @@ mod tests {
         assert_eq!(version as usize, MIGRATIONS.len());
     }
 
-    /// A version 1 database, with `sql` run against it, brought to version 2.
     fn version_one(sql: &str) -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(&format!("{}; PRAGMA user_version = 1;", MIGRATIONS[0]))

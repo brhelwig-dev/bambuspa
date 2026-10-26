@@ -1,6 +1,3 @@
-//! The Bambu P1-series local protocols: MQTT state and commands on :8883, the
-//! chamber-camera stream on :6000, and the SD card over FTP on :990.
-
 mod camera;
 pub mod ftp;
 mod hms;
@@ -16,11 +13,8 @@ pub use state::{Snapshot, StateCache};
 
 use serde_json::{Map, Value};
 
-/// The printer's merged report fields.
 pub type Fields = Map<String, Value>;
 
-/// States in which it is safe to move the bed or change temperatures.
-/// Anything else (RUNNING, PREPARE, PAUSE, unknown) blocks those actions.
 const IDLE_STATES: &[&str] = &["IDLE", "FINISH", "FAILED"];
 
 pub fn gcode_state(fields: &Fields) -> &str {
@@ -30,20 +24,14 @@ pub fn gcode_state(fields: &Fields) -> &str {
         .unwrap_or("unknown")
 }
 
-/// Whether a print is under way. A paused print is still the same job.
 pub fn job_active(gcode_state: &str) -> bool {
     gcode_state == "RUNNING" || gcode_state == "PAUSE"
 }
 
-/// Whether the printer is in a state that means no print is under way.
-/// Deliberately not the negation of `job_active`: "unknown" (before the
-/// printer's first report) and PREPARE are neither, and a caller that acts on a
-/// job ending must not act on the absence of information.
 pub fn job_ended(gcode_state: &str) -> bool {
     IDLE_STATES.contains(&gcode_state)
 }
 
-/// Whether bed, temperature and filament actions may run.
 pub fn action_allowed(connected: bool, gcode_state: &str) -> Result<(), String> {
     if !connected {
         return Err("not connected to printer".into());
@@ -54,7 +42,6 @@ pub fn action_allowed(connected: bool, gcode_state: &str) -> Result<(), String> 
     Ok(())
 }
 
-/// Guards the print-flow controls, which only mean something mid-print.
 pub fn print_action_allowed(
     connected: bool,
     gcode_state: &str,
@@ -79,9 +66,6 @@ pub fn print_action_allowed(
     })
 }
 
-/// The active job's display name, as the printer sent it. "subtask_name" is
-/// the name Bambu Studio/Handy assigns; "gcode_file" (the raw filename) is the
-/// fallback for jobs without one, e.g. local SD prints.
 pub fn job_name(fields: &Fields) -> Value {
     match fields.get("subtask_name") {
         Some(Value::String(name)) if !name.is_empty() => Value::String(name.clone()),
@@ -89,7 +73,6 @@ pub fn job_name(fields: &Fields) -> Value {
     }
 }
 
-/// The job name as text, or empty when there is none.
 pub fn job_name_text(fields: &Fields) -> String {
     match job_name(fields) {
         Value::String(name) => name,
@@ -97,9 +80,6 @@ pub fn job_name_text(fields: &Fields) -> String {
     }
 }
 
-/// The chamber lamp's state from the printer's "lights_report" array. None
-/// means it has not been reported yet, so the page won't assert a state it
-/// hasn't actually seen.
 pub fn chamber_light(fields: &Fields) -> Option<bool> {
     fields
         .get("lights_report")?
@@ -109,7 +89,6 @@ pub fn chamber_light(fields: &Fields) -> Option<bool> {
         .map(|item| item.get("mode").and_then(Value::as_str) == Some("on"))
 }
 
-/// A numeric field, or None when it is missing or not a number.
 pub fn number(fields: &Fields, name: &str) -> Option<f64> {
     fields.get(name).and_then(Value::as_f64)
 }

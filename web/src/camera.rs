@@ -73,7 +73,6 @@ pub fn show_live_frame(state: State, ts: i64, jpeg: &[u8]) {
     camera.caption.set(js::cam_time(ts as f64, true));
 }
 
-/// "video_2026-07-23_08-45-39.avi" as "2026-07-23 08:45".
 fn recorded(name: &str) -> String {
     let stem = name.trim_start_matches("video_").trim_end_matches(".avi");
     match stem.split_once('_') {
@@ -86,8 +85,6 @@ fn timelapse_url(state: State, what: &str, name: &str) -> String {
     state.with_printer(&format!("/api/timelapses/{what}?name={}", js::encode(name)))
 }
 
-/// Fetches and shows frame `i` of `name`. On success, returns the video's
-/// frame count and frame interval, which every frame's response carries.
 async fn show_frame(state: State, name: &str, i: usize) -> Option<(usize, u32)> {
     let mut camera = state.camera;
     let seq = next_seq(camera);
@@ -138,8 +135,6 @@ fn stop_playback(mut camera: Camera) {
     }
 }
 
-/// Plays from the current frame, fetching each one in turn and waiting out the
-/// rest of its interval, so a slow connection plays slower rather than skipping.
 fn start_playback(state: State) {
     let mut camera = state.camera;
     let Some(video) = camera.video.peek().clone() else {

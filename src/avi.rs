@@ -1,7 +1,3 @@
-//! Reads the JPEG frames out of the printer's motion-JPEG AVI timelapses.
-//! Chunks are walked in order rather than through the `idx1` index, which
-//! some of the printer's files lack.
-
 use std::ops::Range;
 
 pub struct Video {

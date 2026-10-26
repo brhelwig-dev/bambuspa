@@ -28,7 +28,6 @@ pub const PIXEL_JPEG: &[u8] = &[
     0x00, 0x00, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x2A, 0x9F, 0xFF, 0xD9,
 ];
 
-/// A motion-JPEG AVI of `frames`, laid out as the printer writes one.
 pub fn avi(frames: &[&[u8]], interval_us: u32) -> Vec<u8> {
     fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
         let mut out = id.to_vec();

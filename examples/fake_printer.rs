@@ -1,14 +1,3 @@
-//! Runs two pretend P1Ss, so the app can be run and looked at without a
-//! printer: one on 127.0.0.1:8883 (MQTT), :6000 (camera) and :990 (FTP),
-//! part-way through a print with two timelapses on its SD card, and an idle one
-//! on 127.0.0.2 at the same ports. On Linux, port 990 needs
-//! `sysctl net.ipv4.ip_unprivileged_port_start=990`.
-//!
-//!     cargo run --example fake_printer
-//!
-//! Then add them on the app's Settings screen: 127.0.0.1, serial FAKE0001,
-//! access code 12345678; and 127.0.0.2, serial FAKE0002, access code 87654321.
-
 #[allow(dead_code)]
 #[path = "../src/testing/printer.rs"]
 mod printer;
@@ -78,7 +67,6 @@ async fn main() {
     println!("fake printer on 127.0.0.2: same ports, serial FAKE0002, access code 87654321");
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        // A little life, so live updates have something to show.
         printer.report(
             json!({"bed_temper": 59.5 + rand_tenth(), "nozzle_temper": 219.5 + rand_tenth()}),
         );

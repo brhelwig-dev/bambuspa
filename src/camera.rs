@@ -1,7 +1,3 @@
-//! Holds the printer's camera connection for the life of the process. The
-//! printer serves one camera client, so Bambu Studio's view won't work while
-//! this runs.
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -14,7 +10,6 @@ use crate::p1s::{self, Link};
 pub const MIN_RETRY: Duration = Duration::from_secs(1);
 pub const MAX_RETRY: Duration = Duration::from_secs(30);
 
-/// When the frame was taken (unix seconds) and the JPEG.
 pub type Frame = Arc<(i64, Vec<u8>)>;
 
 #[derive(Clone)]
@@ -42,20 +37,16 @@ impl Hub {
             .clone()
     }
 
-    /// A slow receiver skips ahead rather than holding anything up.
     pub fn frames(&self) -> broadcast::Receiver<Frame> {
         self.frames.subscribe()
     }
 
-    /// Keeps the camera connected — retrying with backoff, and redialling
-    /// whenever the printer is reconfigured — forever. Spawn once.
     pub async fn run(self) {
         let mut config = self.link.watch_config();
         let mut delay = MIN_RETRY;
         loop {
             let conf = config.borrow_and_update().clone();
             if !conf.complete() {
-                // Nothing to dial until a printer is set up.
                 if config.changed().await.is_err() {
                     return;
                 }
@@ -80,7 +71,6 @@ impl Hub {
                 }
             };
             if got_frame.load(Ordering::Relaxed) {
-                // It was working before it dropped.
                 delay = MIN_RETRY;
             }
             tracing::info!(
@@ -102,7 +92,6 @@ impl Hub {
     }
 }
 
-/// Doubles `prev`, capped at MAX_RETRY.
 pub fn next_backoff(prev: Duration) -> Duration {
     (prev * 2).min(MAX_RETRY)
 }
