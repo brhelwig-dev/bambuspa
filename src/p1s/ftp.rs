@@ -207,22 +207,22 @@ mod tests {
     fn list_lines() {
         assert_eq!(
             parse_list_line(
-                "-rw-rw-rw-   1 root  root   5505722 Jul 23 10:49 video_2026-07-23_08-45-39.avi"
+                "-rw-rw-rw-   1 root  root   1234567 Jan 02 03:04 video_2026-01-02_03-04-05.avi"
             ),
             Some(Entry {
-                name: "video_2026-07-23_08-45-39.avi".into(),
-                bytes: 5505722,
+                name: "video_2026-01-02_03-04-05.avi".into(),
+                bytes: 1234567,
                 dir: false
             })
         );
         assert_eq!(
-            parse_list_line("drwxrwxrwx 1 root root 0 Jul 23 10:49 thumbnail").map(|e| e.dir),
+            parse_list_line("drwxrwxrwx 1 root root 0 Jan 02 03:04 thumbnail").map(|e| e.dir),
             Some(true)
         );
         assert_eq!(
-            parse_list_line("-rw-rw-rw- 1 root root 4637734 Jul 21 02:21 Can dispenser.gcode.3mf")
+            parse_list_line("-rw-rw-rw- 1 root root 7654321 Jan 01 12:00 Plate one.gcode.3mf")
                 .map(|e| e.name),
-            Some("Can dispenser.gcode.3mf".into())
+            Some("Plate one.gcode.3mf".into())
         );
         assert_eq!(parse_list_line("total 12"), None);
     }
