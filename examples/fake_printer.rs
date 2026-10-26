@@ -8,10 +8,11 @@ use serde_json::json;
 async fn main() {
     let printer =
         printer::FakePrinter::start("127.0.0.1", 8883, 6000, 990, "FAKE0001", "12345678").await;
-    for name in ["video_2026-07-22_00-10-12", "video_2026-07-23_08-45-39"] {
+    for day in 1..=8 {
+        let name = format!("video_2026-01-{day:02}_12-00-00");
         printer.put_file(
             &format!("/timelapse/{name}.avi"),
-            printer::avi(&[printer::PIXEL_JPEG; 48], 41_666),
+            printer::avi(&vec![printer::PIXEL_JPEG; 24 * day], 41_666),
         );
         printer.put_file(
             &format!("/timelapse/thumbnail/{name}.jpg"),

@@ -653,10 +653,10 @@ async fn several_printers_each_get_their_own_requests_and_timelapses() {
     one.wait_for(|r| r.contains("G28")).await;
     assert!(!two.requests().iter().any(|r| r.contains("G28")));
 
-    let video = "video_2026-07-23_08-45-39.avi";
+    let video = "video_2026-01-02_03-04-05.avi";
     two.put_file(&format!("/timelapse/{video}"), Vec::new());
     two.put_file(
-        "/timelapse/thumbnail/video_2026-07-23_08-45-39.jpg",
+        "/timelapse/thumbnail/video_2026-01-02_03-04-05.jpg",
         vec![2],
     );
     for id in [id1, id2] {
@@ -704,14 +704,14 @@ async fn several_printers_each_get_their_own_requests_and_timelapses() {
 #[tokio::test]
 async fn timelapses_on_the_sd_card_are_played_frame_by_frame() {
     let h = Harness::with_printer(idle()).await;
-    let video = "video_2026-07-23_08-45-39.avi";
+    let video = "video_2026-01-02_03-04-05.avi";
     let other = [PIXEL_JPEG, &[0]].concat();
     h.printer().put_file(
         &format!("/timelapse/{video}"),
         crate::testing::printer::avi(&[PIXEL_JPEG, &other], 41_666),
     );
     h.printer().put_file(
-        "/timelapse/thumbnail/video_2026-07-23_08-45-39.jpg",
+        "/timelapse/thumbnail/video_2026-01-02_03-04-05.jpg",
         vec![7],
     );
     let frame = |i: &str| format!("/api/timelapses/frame?name={video}&i={i}");
@@ -755,7 +755,7 @@ async fn timelapses_on_the_sd_card_are_played_frame_by_frame() {
 #[tokio::test]
 async fn a_timelapse_that_is_not_an_avi_is_reported() {
     let h = Harness::with_printer(idle()).await;
-    let video = "video_2026-07-23_08-45-39.avi";
+    let video = "video_2026-01-02_03-04-05.avi";
     h.printer()
         .put_file(&format!("/timelapse/{video}"), b"not a video".to_vec());
     h.app
@@ -1085,7 +1085,7 @@ mod live {
         assert_eq!(status["jobName"], "benchy");
 
         h.printer()
-            .put_file("/timelapse/video_2026-07-23_08-45-39.avi", vec![0; 3]);
+            .put_file("/timelapse/video_2026-01-02_03-04-05.avi", vec![0; 3]);
         h.app
             .printers
             .first()
@@ -1100,7 +1100,7 @@ mod live {
         .await;
         assert_eq!(
             timelapses["timelapses"],
-            json!([{"name": "video_2026-07-23_08-45-39.avi", "bytes": 3}])
+            json!([{"name": "video_2026-01-02_03-04-05.avi", "bytes": 3}])
         );
     }
 

@@ -194,10 +194,10 @@ impl FakePrinter {
             };
             lines.insert(match rest.split_once('/') {
                 Some((sub, _)) => {
-                    format!("drwxrwxrwx   1 root  root          0 Jul 23 10:49 {sub}\r\n")
+                    format!("drwxrwxrwx   1 root  root          0 Jan 02 03:04 {sub}\r\n")
                 }
                 None => format!(
-                    "-rw-rw-rw-   1 root  root   {:>8} Jul 23 10:49 {rest}\r\n",
+                    "-rw-rw-rw-   1 root  root   {:>8} Jan 02 03:04 {rest}\r\n",
                     body.len()
                 ),
             });

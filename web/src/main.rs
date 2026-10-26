@@ -88,7 +88,7 @@ pub fn select_printer(mut state: State, id: i64) {
     }
     state.current.set(Some(id));
     js::store("printer", &id.to_string());
-    camera::go_live(state);
+    camera::close_player(state);
     send_live(api::ClientMessage::Select { printer: id });
 }
 

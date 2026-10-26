@@ -23,10 +23,8 @@ fn encode(msg: &api::ClientMessage) -> Message {
 fn receive(mut state: State, msg: Message) {
     match msg {
         Message::Bytes(frame) if frame.len() >= 8 => {
-            if state.camera.following() {
-                let ts = i64::from_be_bytes(frame[..8].try_into().unwrap_or_default());
-                camera::show_live_frame(state, ts, &frame[8..]);
-            }
+            let ts = i64::from_be_bytes(frame[..8].try_into().unwrap_or_default());
+            camera::show_live_frame(state, ts, &frame[8..]);
         }
         Message::Bytes(_) => {}
         Message::Text(text) => match serde_json::from_str(&text) {
@@ -57,9 +55,7 @@ pub async fn run(mut outbox: UnboundedReceiver<api::ClientMessage>, mut state: S
             if let Some(printer) = *state.current.peek() {
                 hello.push(api::ClientMessage::Select { printer });
             }
-            hello.push(api::ClientMessage::Follow {
-                on: state.camera.following(),
-            });
+            hello.push(api::ClientMessage::Follow { on: true });
             let mut sent = true;
             for msg in &hello {
                 sent = sent && sink.send(encode(msg)).await.is_ok();
