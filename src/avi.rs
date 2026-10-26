@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+const MAX_DEPTH: usize = 8;
+
 pub struct Video {
     data: Vec<u8>,
     frames: Vec<Range<usize>>,
@@ -12,7 +14,7 @@ impl Video {
             return Err("not an AVI file".into());
         }
         let (mut interval_us, mut frames) = (0, Vec::new());
-        walk(&data, 0, data.len(), &mut interval_us, &mut frames);
+        walk(&data, 0, data.len(), 0, &mut interval_us, &mut frames);
         if interval_us == 0 {
             return Err("the AVI has no main header".into());
         }
@@ -39,6 +41,7 @@ fn walk(
     data: &[u8],
     mut at: usize,
     end: usize,
+    depth: usize,
     interval_us: &mut u32,
     frames: &mut Vec<Range<usize>>,
 ) {
@@ -48,8 +51,8 @@ fn walk(
         let body = at + 8;
         let stop = body.saturating_add(size).min(end);
         match id {
-            b"RIFF" | b"LIST" if stop >= body + 4 => {
-                walk(data, body + 4, stop, interval_us, frames)
+            b"RIFF" | b"LIST" if stop >= body + 4 && depth < MAX_DEPTH => {
+                walk(data, body + 4, stop, depth + 1, interval_us, frames)
             }
             b"avih" if stop >= body + 4 => {
                 *interval_us = u32::from_le_bytes(data[body..body + 4].try_into().unwrap())
@@ -88,6 +91,24 @@ mod tests {
         let mut data = avi(&[PIXEL_JPEG, PIXEL_JPEG], 100_000);
         data.truncate(data.len() - 10);
         assert_eq!(Video::parse(data).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn deep_nesting_is_not_followed() {
+        let levels = 100_000u32;
+        let inner = avi(&[PIXEL_JPEG], 100_000);
+        let mut data = Vec::with_capacity(inner.len() + 12 * levels as usize);
+        for i in (0..levels).rev() {
+            data.extend_from_slice(b"LIST");
+            data.extend_from_slice(&(inner.len() as u32 + 4 + 12 * i).to_le_bytes());
+            data.extend_from_slice(b"rec ");
+        }
+        data.extend(inner);
+        let mut riff = b"RIFF".to_vec();
+        riff.extend_from_slice(&(data.len() as u32 + 4).to_le_bytes());
+        riff.extend_from_slice(b"AVI ");
+        riff.extend(data);
+        assert!(Video::parse(riff).is_err());
     }
 
     #[test]

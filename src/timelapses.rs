@@ -11,7 +11,7 @@ use crate::settings::Settings;
 
 const DIR: &str = "/timelapse";
 const EVERY: Duration = Duration::from_secs(5 * 60);
-const MAX_VIDEO: u64 = 1 << 30;
+const MAX_VIDEO: u64 = 256 << 20;
 const MAX_THUMBNAIL: u64 = 4 << 20;
 const LOW_WATER: f64 = 0.9;
 
