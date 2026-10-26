@@ -267,7 +267,7 @@ async function main() {
     await page.addInitScript(`try { localStorage.setItem("theme", "light"); } catch {}`);
     await stubStatus(page, printing);
     await page.route("**/api/settings", route => route.fulfill({
-      json: { "camera-storage": 1024, "bed-off-after": 86400,
+      json: { "timelapse-storage": 4096, "bed-off-after": 86400,
               "nozzle-off-after": 900, "lamp-off-after": 28800,
               dashboard: "machineCard,jobCard,controlsCard" },
     }));

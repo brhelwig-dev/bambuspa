@@ -1,7 +1,3 @@
-//! The connection to whichever printer is configured, which can change while
-//! the process runs. With none configured, commands go nowhere and the state
-//! cache reports not connected.
-
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::watch;
@@ -11,7 +7,6 @@ use super::mqtt::Client;
 use crate::activity::Log;
 use crate::clock::Clock;
 
-/// What it takes to reach one printer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Config {
     pub ip: String,
@@ -20,17 +15,16 @@ pub struct Config {
 }
 
 impl Config {
-    /// Whether there is enough here to try connecting.
     pub fn complete(&self) -> bool {
         !self.ip.is_empty() && !self.serial.is_empty() && !self.access_code.is_empty()
     }
 }
 
-/// The printer's ports. Fixed on a real printer; a test points them at fakes.
 #[derive(Clone, Copy)]
 pub struct Ports {
     pub mqtt: u16,
     pub camera: u16,
+    pub ftp: u16,
 }
 
 impl Default for Ports {
@@ -38,6 +32,7 @@ impl Default for Ports {
         Ports {
             mqtt: 8883,
             camera: 6000,
+            ftp: 990,
         }
     }
 }
@@ -68,10 +63,6 @@ impl Link {
         self.config.borrow().clone()
     }
 
-    /// Points the link at a printer, replacing whatever it was on. The old
-    /// connection is dropped and the cached state cleared, so nothing the
-    /// previous printer said is still on screen a moment later. The camera loop
-    /// sees the change and redials.
     pub fn configure(&self, conf: Config) {
         let mut client = self.client.lock().unwrap_or_else(|p| p.into_inner());
         drop(client.take());
@@ -90,12 +81,10 @@ impl Link {
         self.config.send_replace(conf);
     }
 
-    /// Closes the connection, if there is one.
     pub fn stop(&self) {
         drop(self.client.lock().unwrap_or_else(|p| p.into_inner()).take());
     }
 
-    /// A receiver that wakes when the printer is reconfigured.
     pub fn watch_config(&self) -> watch::Receiver<Config> {
         self.config.subscribe()
     }
@@ -108,9 +97,10 @@ impl Link {
         self.ports.camera
     }
 
-    /// Runs `f` against the current client. Commands are already refused by
-    /// the guards when there is no printer; this is the backstop for one
-    /// removed between the guard and the send.
+    pub fn ftp_port(&self) -> u16 {
+        self.ports.ftp
+    }
+
     fn send(&self, f: impl FnOnce(&Client)) {
         if let Some(client) = self
             .client
@@ -166,7 +156,6 @@ impl Link {
         self.send(|c| c.set_ams_filament(ams_id, tray_id, info_idx, color, kind, min, max))
     }
 
-    /// The configured printer, for a log line, without the access code.
     pub fn describe(&self) -> String {
         let conf = self.config();
         if conf.complete() {

@@ -1,45 +1,25 @@
-//! What the app does on its own as the printer's state changes: records print
-//! boundaries, sends notifications, drives the chamber lamp, shuts heaters off
-//! after a while, and reminds about a bed left on.
-//!
-//! Every rule runs in one place, `Reactor::evaluate`, on every change to the
-//! printer's state and whenever a timer comes due — so a reaction follows the
-//! report that caused it, rather than the next tick of a poll.
-
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Notify, watch};
+use tokio::sync::watch;
 
 use crate::clock::{self, Clock};
-use crate::history::JobTracker;
 use crate::p1s::{self, HmsEntry, Link, Snapshot};
 use crate::printers::Printers;
 use crate::push::{self, Notification, Sender};
 use crate::settings::Values;
 use crate::timers::{self, Timers};
 
-/// Something the reactor wants done, outside itself.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     SetBedTemp(i64),
     SetNozzleTemp(i64),
     Lamp(bool),
     Notify(Notification),
-    /// The bed has been on since this time (unix seconds), holding `target`.
-    RemindBed {
-        since: i64,
-        target: f64,
-    },
-    /// The bed went off; every device's reminder schedule starts over.
+    RemindBed { since: i64, target: f64 },
     ForgetBedReminders,
-    /// A job row was opened or closed.
-    JobsChanged,
 }
 
-/// Heater shut-off: a bed or nozzle set hot through this app is turned off a
-/// set time later. Setting it again, including to off, resets the countdown;
-/// the window is read now, so a later settings change doesn't move it.
 pub fn arm_heater(timers: &Timers, name: &str, temp: i64, now: i64, window: i64) {
     if temp > 0 {
         timers.set(name, now + window)
@@ -50,39 +30,23 @@ pub fn arm_heater(timers: &Timers, name: &str, temp: i64, now: i64, window: i64)
 
 pub struct Reactor {
     timers: Timers,
-    jobs: JobTracker,
     settings: Arc<dyn Fn() -> Values + Send + Sync>,
 
-    /// Whether a connected snapshot has been seen yet. The first is only
-    /// recorded, never announced: a print that finished before a restart is
-    /// not news.
     observed: bool,
     was_busy: bool,
     errors_seen: Vec<String>,
 
-    /// The lamp's view: whether it has looked yet, and whether the printer was
-    /// active (a print running, or a heater set) when it last did.
     lamp_observed: bool,
     was_active: bool,
 
-    /// Whether devices may hold reminder state that needs forgetting.
     reminding: bool,
 }
 
 impl Reactor {
-    /// Resumes from the timers pending when the process last stopped.
-    pub fn new(
-        timers: Timers,
-        jobs: JobTracker,
-        settings: impl Fn() -> Values + Send + Sync + 'static,
-    ) -> Reactor {
-        // A pending lamp shut-off means the printer was idle when it was
-        // armed, which is also what the first look would conclude. Saying so
-        // here keeps that look from re-arming and losing the elapsed time.
+    pub fn new(timers: Timers, settings: impl Fn() -> Values + Send + Sync + 'static) -> Reactor {
         let lamp_observed = timers.get(timers::LAMP_OFF).is_some();
         Reactor {
             timers,
-            jobs,
             settings: Arc::new(settings),
             observed: false,
             was_busy: false,
@@ -93,7 +57,6 @@ impl Reactor {
         }
     }
 
-    /// Applies every rule to the printer's state at `now_ms`.
     pub fn evaluate(&mut self, snap: &Snapshot, now_ms: i64) -> Vec<Effect> {
         let now = clock::secs(now_ms);
         let fields = &snap.fields;
@@ -104,16 +67,8 @@ impl Reactor {
         let nozzle_target = p1s::number(fields, "nozzle_target_temper").unwrap_or(0.0);
         let mut out = Vec::new();
 
-        if self.jobs.observe(state, &name, now) {
-            out.push(Effect::JobsChanged);
-        }
         self.auto_off(snap.connected, state, now, &mut out);
 
-        // A disconnected printer reports nothing rather than its last known
-        // state, so a dropped link cannot look like a print ending. Nor does
-        // one that has connected but not yet said what it is doing: the
-        // moment between connecting and the first report would otherwise read
-        // as idle, and the report after it as a print starting.
         if snap.connected && state != "unknown" {
             let first = !self.observed;
             self.observed = true;
@@ -147,10 +102,6 @@ impl Reactor {
         out
     }
 
-    /// Shuts a heater down once its deadline passes, but only while the printer
-    /// is idle: mid-print the printer owns its temperatures, and cutting them
-    /// ruins the print. A deadline reached mid-print fires the first moment the
-    /// printer is idle again.
     fn auto_off(&self, connected: bool, state: &str, now: i64, out: &mut Vec<Effect>) {
         if p1s::action_allowed(connected, state).is_err() {
             return;
@@ -187,8 +138,6 @@ impl Reactor {
         let (title, kind) = match (busy, self.was_busy, state) {
             (true, false, _) => ("Print started", push::KIND_PRINT_STARTED),
             (false, true, "FINISH") => ("Print finished", push::KIND_PRINT_FINISHED),
-            // The printer reports the same state whether it gave up or someone
-            // pressed Stop, so the wording must not claim to know which.
             (false, true, "FAILED") => ("Print ended without finishing", push::KIND_PRINT_ENDED),
             _ => return,
         };
@@ -200,9 +149,6 @@ impl Reactor {
         )));
     }
 
-    /// Announces errors that were not standing a moment ago. Filament runout
-    /// arrives this way. Forgetting errors that clear is what lets the same
-    /// fault announce itself again if it comes back.
     fn new_errors(&mut self, errors: &[HmsEntry], first: bool, out: &mut Vec<Effect>) {
         if !first {
             for e in errors
@@ -220,9 +166,6 @@ impl Reactor {
         self.errors_seen = errors.iter().map(|e| e.code.clone()).collect();
     }
 
-    /// Notes when the bed came on with no print running. At startup the bed
-    /// may already have been on for hours, which cannot be known — so the
-    /// clock starts now and a reminder comes late rather than invented.
     fn track_bed_on(&self, busy: bool, bed_target: f64, now: i64) {
         if bed_target <= 0.0 || busy {
             self.timers.clear(timers::BED_ON_SINCE);
@@ -231,10 +174,6 @@ impl Reactor {
         }
     }
 
-    /// Becoming active turns the lamp on once; becoming inactive arms a
-    /// countdown that turns it off once. Manual toggles in between are left
-    /// alone. The first look counts as a change either way, so a restart
-    /// mid-print turns the lamp on and a restart while idle arms the countdown.
     fn lamp(&mut self, active: bool, now: i64, out: &mut Vec<Effect>) {
         let first = !self.lamp_observed;
         self.lamp_observed = true;
@@ -257,8 +196,6 @@ impl Reactor {
         }
     }
 
-    /// Re-evaluates on every state change and whenever a timer or reminder
-    /// comes due, forever. Spawn once.
     pub async fn run(mut self, mut state: watch::Receiver<Snapshot>, runner: Runner) {
         loop {
             let snap = state.borrow_and_update().clone();
@@ -284,21 +221,16 @@ impl Reactor {
     }
 }
 
-/// Carries out the reactor's effects, for printer `printer`.
 #[derive(Clone)]
 pub struct Runner {
     pub link: Link,
     pub sender: Sender,
-    pub jobs_changed: Arc<Notify>,
     pub clock: Clock,
     pub printer: i64,
-    /// For the printer's name, which starts each notification once there is
-    /// more than one printer.
     pub printers: Printers,
 }
 
 impl Runner {
-    /// Does one effect. For a reminder, returns when the next one comes due.
     fn apply(&self, effect: Effect, now_ms: i64) -> Option<i64> {
         match effect {
             Effect::SetBedTemp(t) => self.link.set_bed_temp(t),
@@ -306,7 +238,6 @@ impl Runner {
             Effect::Lamp(on) => self.link.set_chamber_light(on),
             Effect::Notify(mut n) => {
                 n.title = format!("{}{}", self.printers.label(self.printer), n.title);
-                // So one printer's notification doesn't replace another's.
                 n.tag = format!("{}-{}", n.tag, self.printer);
                 let sender = self.sender.clone();
                 tokio::spawn(async move {
@@ -329,7 +260,6 @@ impl Runner {
                     tracing::warn!("notify: clearing bed reminders: {err}");
                 }
             }
-            Effect::JobsChanged => self.jobs_changed.notify_one(),
         }
         None
     }
@@ -339,7 +269,6 @@ impl Runner {
 mod tests {
     use super::*;
     use crate::db::Db;
-    use crate::history::Store;
     use serde_json::{Value, json};
 
     const T0: i64 = 1_000_000;
@@ -347,8 +276,6 @@ mod tests {
     struct Fixture {
         reactor: Reactor,
         timers: Timers,
-        store: Store,
-        db: Db,
     }
 
     fn fixture() -> Fixture {
@@ -356,19 +283,9 @@ mod tests {
     }
 
     fn fixture_on(db: Db) -> Fixture {
-        let timers = Timers::new(db.clone()).unwrap();
-        let store = Store::new(db.clone());
-        let reactor = Reactor::new(
-            timers.clone(),
-            JobTracker::new(store.clone()),
-            Values::default,
-        );
-        Fixture {
-            reactor,
-            timers,
-            store,
-            db,
-        }
+        let timers = Timers::new(db).unwrap();
+        let reactor = Reactor::new(timers.clone(), Values::default);
+        Fixture { reactor, timers }
     }
 
     fn snap(connected: bool, fields: Value) -> Snapshot {
@@ -402,8 +319,6 @@ mod tests {
     fn has(effects: &[Effect], want: &Effect) -> bool {
         effects.contains(want)
     }
-
-    // Print notifications.
 
     #[test]
     fn the_first_look_never_notifies() {
@@ -486,7 +401,6 @@ mod tests {
         let mut gone = printer("FINISH", "a");
         gone.connected = false;
         assert!(titles(&f.at(1, &gone)).is_empty());
-        // Back, still running: nothing ended.
         assert!(titles(&f.at(2, &printer("RUNNING", "a"))).is_empty());
     }
 
@@ -548,8 +462,6 @@ mod tests {
         let mut f = fixture();
         assert!(titles(&f.at(0, &with_errors(&[(1, 2)]))).is_empty());
     }
-
-    // The bed-on clock and reminders.
 
     fn bed(state: &str, target: f64) -> Snapshot {
         snap(
@@ -616,8 +528,6 @@ mod tests {
         ));
     }
 
-    // Heater auto-off.
-
     fn armed(f: &Fixture, temp: i64) {
         arm_heater(&f.timers, timers::BED_OFF, temp, T0, 3600);
     }
@@ -678,8 +588,6 @@ mod tests {
             &Effect::SetBedTemp(0)
         ));
     }
-
-    // The lamp.
 
     fn lamp(active: bool) -> Snapshot {
         if active {
@@ -761,24 +669,5 @@ mod tests {
             Some(T0 + 8 * 3600),
             "not re-armed"
         );
-    }
-
-    // Job rows.
-
-    #[test]
-    fn job_rows_follow_the_print() {
-        let mut f = fixture();
-        assert!(has(
-            &f.at(0, &printer("RUNNING", "a")),
-            &Effect::JobsChanged
-        ));
-        assert!(!has(
-            &f.at(1, &printer("RUNNING", "a")),
-            &Effect::JobsChanged
-        ));
-        assert!(has(&f.at(2, &printer("FINISH", "a")), &Effect::JobsChanged));
-        let jobs = f.store.recent_jobs().unwrap();
-        assert_eq!((jobs[0].start, jobs[0].end), (T0, Some(T0 + 2)));
-        let _ = &f.db;
     }
 }

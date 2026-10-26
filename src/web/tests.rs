@@ -354,12 +354,12 @@ async fn settings_are_served_and_set_in_their_units() {
     let s = h.get("/api/settings").await.json();
     assert_eq!(
         s,
-        json!({"camera-storage": 1024, "bed-off-after": 86400, "nozzle-off-after": 900,
+        json!({"timelapse-storage": 4096, "bed-off-after": 86400, "nozzle-off-after": 900,
                "lamp-off-after": 28800, "activity-limit": 64, "session-length": 1209600,
                "dashboard": ""})
     );
     assert_eq!(
-        h.post("/api/settings/camera-storage?value=2048")
+        h.post("/api/settings/timelapse-storage?value=2048")
             .await
             .status,
         StatusCode::NO_CONTENT
@@ -379,7 +379,7 @@ async fn settings_are_served_and_set_in_their_units() {
     let s = h.get("/api/settings").await.json();
     assert_eq!(
         (
-            s["camera-storage"].clone(),
+            s["timelapse-storage"].clone(),
             s["bed-off-after"].clone(),
             s["dashboard"].clone()
         ),
@@ -400,11 +400,14 @@ async fn bad_setting_writes_are_refused() {
             "/api/settings/chamber-temperature?value=3600",
             "settings: unknown setting \"chamber-temperature\"",
         ),
-        ("/api/settings/camera-storage?value=lots", "invalid value"),
-        ("/api/settings/camera-storage", "invalid value"),
         (
-            "/api/settings/camera-storage?value=1",
-            "camera-storage must be between 64 MB and 65536 MB",
+            "/api/settings/timelapse-storage?value=lots",
+            "invalid value",
+        ),
+        ("/api/settings/timelapse-storage", "invalid value"),
+        (
+            "/api/settings/timelapse-storage?value=-1",
+            "timelapse-storage must be between 0 MB and 1048576 MB",
         ),
         (
             "/api/settings/bed-off-after?value=1",
@@ -418,13 +421,17 @@ async fn bad_setting_writes_are_refused() {
             "{uri}"
         );
     }
-    assert_eq!(h.get("/api/settings").await.json()["camera-storage"], 1024);
+    assert_eq!(
+        h.get("/api/settings").await.json()["timelapse-storage"],
+        4096
+    );
 }
 
 #[tokio::test]
 async fn adding_a_printer_connects_to_it_and_keeps_its_secret() {
     let printer =
-        crate::testing::printer::FakePrinter::start("127.0.0.1", 0, 0, "SERIAL1", "secret").await;
+        crate::testing::printer::FakePrinter::start("127.0.0.1", 0, 0, 0, "SERIAL1", "secret")
+            .await;
     let dir = crate::testing::tempdir();
     let h = Harness::start_in(dir.clone(), crate::auth::Decision::Disabled, Some(printer)).await;
     assert_eq!(h.get("/api/printers").await.json(), json!([]));
@@ -487,7 +494,8 @@ async fn adding_a_printer_connects_to_it_and_keeps_its_secret() {
 #[tokio::test]
 async fn a_printer_that_does_not_answer_is_not_saved_and_says_why() {
     let printer =
-        crate::testing::printer::FakePrinter::start("127.0.0.1", 0, 0, "SERIAL1", "secret").await;
+        crate::testing::printer::FakePrinter::start("127.0.0.1", 0, 0, 0, "SERIAL1", "secret")
+            .await;
     let h = Harness::start_in(
         crate::testing::tempdir(),
         crate::auth::Decision::Disabled,
@@ -555,13 +563,15 @@ async fn a_printer_that_does_not_answer_is_not_saved_and_says_why() {
 }
 
 #[tokio::test]
-async fn several_printers_each_get_their_own_requests_and_footage() {
+async fn several_printers_each_get_their_own_requests_and_timelapses() {
     let one =
-        crate::testing::printer::FakePrinter::start("127.0.0.1", 0, 0, "SERIAL1", "secret").await;
+        crate::testing::printer::FakePrinter::start("127.0.0.1", 0, 0, 0, "SERIAL1", "secret")
+            .await;
     let two = crate::testing::printer::FakePrinter::start(
         "127.0.0.2",
         one.mqtt_port,
         one.camera_port,
+        one.ftp_port,
         "SERIAL2",
         "secret2",
     )
@@ -643,15 +653,26 @@ async fn several_printers_each_get_their_own_requests_and_footage() {
     one.wait_for(|r| r.contains("G28")).await;
     assert!(!two.requests().iter().any(|r| r.contains("G28")));
 
-    let p2 = h.app.printers.get(id2).unwrap();
-    p2.store.insert_frame(5, &[2]).unwrap();
-    assert_eq!(
-        h.get(&format!("/camera/history/frame?ts=0&printer={id2}"))
-            .await
-            .body,
-        vec![2]
+    let video = "video_2026-07-23_08-45-39.avi";
+    two.put_file(&format!("/timelapse/{video}"), Vec::new());
+    two.put_file(
+        "/timelapse/thumbnail/video_2026-07-23_08-45-39.jpg",
+        vec![2],
     );
-    assert_ne!(h.get("/camera/history/frame?ts=0").await.body, vec![2]);
+    for id in [id1, id2] {
+        h.app
+            .printers
+            .get(id)
+            .unwrap()
+            .library
+            .refresh()
+            .await
+            .unwrap();
+    }
+    let thumbnail =
+        |printer: i64| format!("/api/timelapses/thumbnail?name={video}&printer={printer}");
+    assert_eq!(h.get(&thumbnail(id2)).await.body, vec![2]);
+    assert_eq!(h.get(&thumbnail(id1)).await.status, StatusCode::NOT_FOUND);
 
     assert_eq!(h.app.printers.label(id2), "Office: ");
 
@@ -662,7 +683,6 @@ async fn several_printers_each_get_their_own_requests_and_footage() {
         StatusCode::NO_CONTENT
     );
     assert!(h.app.printers.get(id2).is_none() && !h.app.printers.stored(id2));
-    assert_eq!(p2.store.range().unwrap(), (None, None));
     assert_eq!(
         h.get("/api/printers")
             .await
@@ -682,98 +702,90 @@ async fn several_printers_each_get_their_own_requests_and_footage() {
 }
 
 #[tokio::test]
-async fn frames_jobs_and_the_range() {
-    let h = Harness::offline().await;
+async fn timelapses_on_the_sd_card_are_played_frame_by_frame() {
+    let h = Harness::with_printer(idle()).await;
+    let video = "video_2026-07-23_08-45-39.avi";
+    let other = [PIXEL_JPEG, &[0]].concat();
+    h.printer().put_file(
+        &format!("/timelapse/{video}"),
+        crate::testing::printer::avi(&[PIXEL_JPEG, &other], 41_666),
+    );
+    h.printer().put_file(
+        "/timelapse/thumbnail/video_2026-07-23_08-45-39.jpg",
+        vec![7],
+    );
+    let frame = |i: &str| format!("/api/timelapses/frame?name={video}&i={i}");
     assert_eq!(
-        h.get("/camera/history/range").await.json(),
-        json!({"oldest": null, "newest": null})
+        h.get(&frame("0")).await.status,
+        StatusCode::NOT_FOUND,
+        "not listed yet"
     );
     h.app
         .printers
-        .add(
-            "P1S",
-            crate::p1s::Config {
-                ip: "127.0.0.3".into(),
-                serial: "S".into(),
-                access_code: "c".into(),
-            },
-        )
+        .first()
+        .unwrap()
+        .library
+        .refresh()
+        .await
         .unwrap();
-    let store = h.app.printers.first().unwrap().store.clone();
-    let now = crate::clock::secs(crate::clock::system()());
-    store.insert_frame(now - 48 * 3600, &[1]).unwrap();
-    store.insert_frame(now - 100, PIXEL_JPEG).unwrap();
-    store.insert_frame(now - 50, &[3]).unwrap();
-    let id = store.open_job("benchy.gcode", now - 200).unwrap();
-    store.close_job(id, now - 10).unwrap();
 
-    let range = h.get("/camera/history/range").await.json();
+    let r = h.get(&frame("1")).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.headers["content-type"], "image/jpeg");
+    assert_eq!(r.headers["x-frame-count"], "2");
+    assert_eq!(r.headers["x-frame-interval"], "41666");
+    assert_eq!(r.body, other);
+    assert_eq!(h.get(&frame("0")).await.body, PIXEL_JPEG);
+    assert_eq!(h.get(&frame("2")).await.text(), "no such timelapse\n");
+    assert_eq!(h.get(&frame("x")).await.text(), "name and i are required\n");
     assert_eq!(
-        range,
-        json!({"oldest": now - 48 * 3600, "newest": now - 50}),
-        "idle, the bar reaches back to the oldest frame"
+        h.get("/api/timelapses/frame?name=../cache/a.gcode&i=0")
+            .await
+            .status,
+        StatusCode::NOT_FOUND
     );
 
     let r = h
-        .get(&format!("/camera/history/frame?ts={}", now - 120))
+        .get(&format!("/api/timelapses/thumbnail?name={video}"))
         .await;
-    assert_eq!(r.status, StatusCode::OK);
-    assert_eq!(r.headers["content-type"], "image/jpeg");
-    assert_eq!(
-        r.headers["x-frame-timestamp"],
-        (now - 100).to_string().as_str()
-    );
-    assert_eq!(r.body, PIXEL_JPEG);
-    assert_eq!(
-        h.get(&format!("/camera/history/frame?ts={now}"))
-            .await
-            .text(),
-        "no frame at or after ts\n"
-    );
-    assert_eq!(
-        h.get("/camera/history/frame?ts=soon").await.text(),
-        "invalid ts\n"
-    );
-
-    assert_eq!(
-        h.get("/camera/history/jobs").await.json(),
-        json!([{"id": id, "name": "benchy.gcode", "start": now - 200, "end": now - 10}])
-    );
+    assert_eq!((r.status, r.body), (StatusCode::OK, vec![7]));
+    assert_eq!(r.headers["cache-control"], "private, max-age=86400");
 }
 
 #[tokio::test]
-async fn the_range_starts_just_before_a_running_print() {
-    let h = Harness::with_printer(running()).await;
-    let now = crate::clock::secs(crate::clock::system()());
-    let store = h.app.printers.first().unwrap().store.clone();
-    store.insert_frame(now - 20 * 3600, &[1]).unwrap();
-    store.insert_frame(now, &[2]).unwrap();
-    let job = store
-        .active_job()
-        .unwrap()
-        .expect("the reactor opened a row for the running print");
-    let range = h.get("/camera/history/range").await.json();
-    assert_eq!(range["oldest"], job.start - super::camera::JOB_LEAD_IN);
-}
-
-#[tokio::test]
-async fn the_camera_is_recorded() {
+async fn a_timelapse_that_is_not_an_avi_is_reported() {
     let h = Harness::with_printer(idle()).await;
+    let video = "video_2026-07-23_08-45-39.avi";
+    h.printer()
+        .put_file(&format!("/timelapse/{video}"), b"not a video".to_vec());
+    h.app
+        .printers
+        .first()
+        .unwrap()
+        .library
+        .refresh()
+        .await
+        .unwrap();
+    let r = h
+        .get(&format!("/api/timelapses/frame?name={video}&i=0"))
+        .await;
+    assert_eq!(
+        (r.status, r.text()),
+        (StatusCode::BAD_GATEWAY, "not an AVI file\n".into())
+    );
+}
+
+#[tokio::test]
+async fn the_live_camera_keeps_its_latest_frame() {
+    let h = Harness::with_printer(idle()).await;
+    let hub = h.app.printers.first().unwrap().hub.clone();
     for _ in 0..100 {
-        if h.get("/camera/history/range").await.json()["newest"].is_i64() {
+        if hub.latest().is_some() {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-    let newest = h.get("/camera/history/range").await.json()["newest"]
-        .as_i64()
-        .expect("a recorded frame");
-    assert_eq!(
-        h.get(&format!("/camera/history/frame?ts={newest}"))
-            .await
-            .body,
-        PIXEL_JPEG
-    );
+    assert_eq!(hub.latest().expect("a frame").1, PIXEL_JPEG);
 }
 
 #[tokio::test]
@@ -818,7 +830,7 @@ async fn cross_origin_posts_are_refused() {
     let post = |headers: &[(&str, &str)]| {
         let mut req = axum::http::Request::builder()
             .method("POST")
-            .uri("/api/settings/camera-storage?value=512");
+            .uri("/api/settings/timelapse-storage?value=512");
         for (k, v) in headers {
             req = req.header(*k, *v);
         }
@@ -1061,27 +1073,35 @@ mod live {
         let status = next_of(&mut ws, |v| v["type"] == "status").await;
         assert_eq!(status["gcodeState"], "IDLE");
         assert_eq!(status["connected"], true);
-        next_of(&mut ws, |v| v["type"] == "range").await;
-        let jobs = next_of(&mut ws, |v| v["type"] == "jobs").await;
-        assert_eq!(jobs["jobs"], json!([]));
+        let timelapses = next_of(&mut ws, |v| v["type"] == "timelapses").await;
+        assert_eq!(timelapses["timelapses"], json!([]));
 
         h.printer()
             .report(json!({"gcode_state": "RUNNING", "subtask_name": "benchy"}));
-        let (mut status, mut jobs) = (None, None);
-        while status.is_none() || jobs.is_none() {
-            let v = next_of(&mut ws, |v| {
-                (v["type"] == "status" && v["gcodeState"] == "RUNNING")
-                    || (v["type"] == "jobs" && !v["jobs"].as_array().unwrap().is_empty())
-            })
-            .await;
-            if v["type"] == "status" {
-                status = Some(v)
-            } else {
-                jobs = Some(v)
-            }
-        }
-        assert_eq!(status.unwrap()["jobName"], "benchy");
-        assert_eq!(jobs.unwrap()["jobs"][0]["name"], "benchy");
+        let status = next_of(&mut ws, |v| {
+            v["type"] == "status" && v["gcodeState"] == "RUNNING"
+        })
+        .await;
+        assert_eq!(status["jobName"], "benchy");
+
+        h.printer()
+            .put_file("/timelapse/video_2026-07-23_08-45-39.avi", vec![0; 3]);
+        h.app
+            .printers
+            .first()
+            .unwrap()
+            .library
+            .refresh()
+            .await
+            .unwrap();
+        let timelapses = next_of(&mut ws, |v| {
+            v["type"] == "timelapses" && !v["timelapses"].as_array().unwrap().is_empty()
+        })
+        .await;
+        assert_eq!(
+            timelapses["timelapses"],
+            json!([{"name": "video_2026-07-23_08-45-39.avi", "bytes": 3}])
+        );
     }
 
     #[tokio::test]

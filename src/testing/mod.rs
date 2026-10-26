@@ -1,5 +1,3 @@
-//! Stand-ins for the printer, for tests.
-
 pub mod printer;
 
 use std::sync::Arc;
@@ -13,8 +11,6 @@ pub fn server_tls() -> TlsAcceptor {
     printer::acceptor()
 }
 
-/// A camera that accepts one connection, reads the 80-byte auth packet, sends
-/// `frames` and hangs up.
 pub struct FakeCamera {
     pub port: u16,
     auth: Arc<Mutex<Vec<u8>>>,
@@ -44,21 +40,17 @@ impl FakeCamera {
         FakeCamera { port, auth }
     }
 
-    /// The auth packet the client sent.
     pub async fn auth(&self) -> Vec<u8> {
         self.auth.lock().await.clone()
     }
 }
 
-/// A fresh directory under the system's temporary directory.
 pub fn tempdir() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("bambuspa-test-{}", crate::random_token()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-/// The whole app, started in a fresh data directory with login disabled, and
-/// optionally connected to a fake printer.
 pub struct Harness {
     pub app: crate::Started,
     pub printer: Option<printer::FakePrinter>,
@@ -81,14 +73,12 @@ impl Reply {
 }
 
 impl Harness {
-    /// No printer configured.
     pub async fn offline() -> Harness {
         Harness::start_in(tempdir(), crate::auth::Decision::Disabled, None).await
     }
 
-    /// Connected to a fake printer reporting `state`.
     pub async fn with_printer(state: serde_json::Value) -> Harness {
-        let printer = printer::FakePrinter::start("127.0.0.1", 0, 0, "SERIAL1", "secret").await;
+        let printer = printer::FakePrinter::start("127.0.0.1", 0, 0, 0, "SERIAL1", "secret").await;
         printer.set_state(state);
         let h = Harness::start_in(tempdir(), crate::auth::Decision::Disabled, Some(printer)).await;
         h.configure();
@@ -106,6 +96,7 @@ impl Harness {
             .map(|p| crate::p1s::Ports {
                 mqtt: p.mqtt_port,
                 camera: p.camera_port,
+                ftp: p.ftp_port,
             })
             .unwrap_or_default();
         let app = crate::start(&dir, decision, ports, crate::clock::system())
@@ -114,7 +105,6 @@ impl Harness {
         Harness { app, printer }
     }
 
-    /// Adds the fake printer, as the setup screen would, and returns its id.
     pub fn configure(&self) -> i64 {
         self.app
             .printers
@@ -133,13 +123,11 @@ impl Harness {
         self.printer.as_ref().expect("a printer")
     }
 
-    /// Waits until the first printer's state satisfies `want`.
     pub async fn wait(&self, want: impl Fn(&crate::p1s::Snapshot) -> bool) {
         let first = self.app.printers.first().expect("a printer is set up");
         self.wait_on(first.id, want).await;
     }
 
-    /// Waits until printer `id`'s state satisfies `want`.
     pub async fn wait_on(&self, id: i64, want: impl Fn(&crate::p1s::Snapshot) -> bool) {
         let printer = self.app.printers.get(id).expect("no such printer");
         let mut rx = printer.cache.subscribe();
@@ -150,7 +138,6 @@ impl Harness {
             .unwrap();
     }
 
-    /// Sends a report and waits for it to be merged.
     pub async fn report(&self, fields: serde_json::Value) {
         let want = fields.clone();
         self.printer().report(fields);
@@ -202,7 +189,6 @@ impl Harness {
         }
     }
 
-    /// Serves the app on a free local port, for clients that need a socket.
     pub async fn serve(&self) -> std::net::SocketAddr {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

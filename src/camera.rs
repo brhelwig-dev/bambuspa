@@ -1,56 +1,52 @@
-//! Holds the printer's camera connection for the life of the process and
-//! records every frame, which all camera views read from. The printer serves
-//! one camera client, so Bambu Studio's view won't work while this runs.
-
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::broadcast;
 
 use crate::clock::{self, Clock};
-use crate::history::Store;
 use crate::p1s::{self, Link};
 
 pub const MIN_RETRY: Duration = Duration::from_secs(1);
 pub const MAX_RETRY: Duration = Duration::from_secs(30);
 
-/// A recorded frame: when it was taken (unix seconds) and the JPEG.
 pub type Frame = Arc<(i64, Vec<u8>)>;
 
 #[derive(Clone)]
 pub struct Hub {
     link: Link,
-    store: Store,
     clock: Clock,
     frames: broadcast::Sender<Frame>,
+    latest: Arc<Mutex<Option<Frame>>>,
 }
 
 impl Hub {
-    pub fn new(link: Link, store: Store, clock: Clock) -> Hub {
+    pub fn new(link: Link, clock: Clock) -> Hub {
         Hub {
             link,
-            store,
             clock,
             frames: broadcast::Sender::new(4),
+            latest: Arc::default(),
         }
     }
 
-    /// Every frame as it is recorded. A slow receiver skips ahead rather than
-    /// holding anything up.
+    pub fn latest(&self) -> Option<Frame> {
+        self.latest
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
     pub fn frames(&self) -> broadcast::Receiver<Frame> {
         self.frames.subscribe()
     }
 
-    /// Keeps the camera connected — retrying with backoff, and redialling
-    /// whenever the printer is reconfigured — forever. Spawn once.
     pub async fn run(self) {
         let mut config = self.link.watch_config();
         let mut delay = MIN_RETRY;
         loop {
             let conf = config.borrow_and_update().clone();
             if !conf.complete() {
-                // Nothing to dial until a printer is set up.
                 if config.changed().await.is_err() {
                     return;
                 }
@@ -75,7 +71,6 @@ impl Hub {
                 }
             };
             if got_frame.load(Ordering::Relaxed) {
-                // It was working before it dropped.
                 delay = MIN_RETRY;
             }
             tracing::info!(
@@ -91,15 +86,12 @@ impl Hub {
     }
 
     fn record(&self, jpeg: Vec<u8>) {
-        let ts = clock::secs((self.clock)());
-        if let Err(err) = self.store.insert_frame(ts, &jpeg) {
-            tracing::warn!("camera: storing a frame: {err}");
-        }
-        let _ = self.frames.send(Arc::new((ts, jpeg)));
+        let frame = Arc::new((clock::secs((self.clock)()), jpeg));
+        *self.latest.lock().unwrap_or_else(|p| p.into_inner()) = Some(frame.clone());
+        let _ = self.frames.send(frame);
     }
 }
 
-/// Doubles `prev`, capped at MAX_RETRY.
 pub fn next_backoff(prev: Duration) -> Duration {
     (prev * 2).min(MAX_RETRY)
 }

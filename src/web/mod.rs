@@ -1,11 +1,11 @@
 mod actions;
-mod camera;
 mod csrf;
 mod live;
 mod notify;
 mod printers;
 mod settings;
 mod statics;
+mod timelapses;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -57,9 +57,8 @@ pub fn router(app: App) -> Router {
         .route("/api/status", get(status))
         .route("/api/actions/{name}", post(actions::action))
         .route("/api/live", get(live::socket))
-        .route("/camera/history/range", get(camera::range))
-        .route("/camera/history/frame", get(camera::frame))
-        .route("/camera/history/jobs", get(camera::jobs))
+        .route("/api/timelapses/frame", get(timelapses::frame))
+        .route("/api/timelapses/thumbnail", get(timelapses::thumbnail))
         .route("/api/events", get(settings::events))
         .route("/api/printers", get(printers::list).post(printers::add))
         .route(

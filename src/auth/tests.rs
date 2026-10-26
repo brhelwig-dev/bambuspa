@@ -1,7 +1,3 @@
-//! The environment rules, the session store, and the whole login run against
-//! a stand-in provider that signs real tokens — so verification is exercised
-//! the way a live provider would exercise it.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -21,8 +17,6 @@ use serde_json::json;
 use super::*;
 use crate::clock;
 use crate::testing::tempdir;
-
-// The environment.
 
 fn env(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
     let vars: HashMap<String, String> = vars
@@ -144,8 +138,6 @@ fn safe_next_keeps_logins_inside_the_app() {
     assert_eq!(safe_next("/a b#frag"), "/a%20b");
 }
 
-// The store.
-
 #[test]
 fn sessions_live_until_they_lapse_and_can_be_extended_or_ended() {
     let store = Store::new(Db::memory());
@@ -239,8 +231,6 @@ fn part_way_logins_are_bounded() {
     );
 }
 
-// The login, end to end.
-
 const KEY_PEM: &str = include_str!("testdata/provider-key.pem");
 
 #[derive(Default)]
@@ -250,7 +240,6 @@ struct Seen {
     verifier: String,
 }
 
-/// Levers a test pulls to make the provider misbehave.
 #[derive(Default, Clone)]
 struct Levers {
     wrong_key: bool,
@@ -355,8 +344,6 @@ async fn token(
         EmptyAdditionalClaims {},
     )
     .set_nonce(Some(Nonce::new(nonce)));
-    // A key the provider never published can be told apart only by checking
-    // the signature: same id, different key.
     let key = if levers.wrong_key {
         let other = rsa_other_pem();
         CoreRsaPrivateSigningKey::from_pem(&other, Some(JsonWebKeyId::new("k1".into()))).unwrap()
@@ -384,11 +371,9 @@ fn rsa_other_pem() -> String {
         .unwrap()
 }
 
-/// A browser: follows redirects and keeps cookies.
 struct Browser {
     http: reqwest::Client,
     cookies: Mutex<HashMap<String, String>>,
-    /// Every URL visited, in order.
     visited: Mutex<Vec<String>>,
 }
 
@@ -414,7 +399,6 @@ impl Browser {
         self.go_until(method, url, |_| false).await
     }
 
-    /// Follows redirects, stopping before any URL `stop` matches.
     async fn go_until(&self, method: &str, url: &str, stop: impl Fn(&str) -> bool) -> Page {
         let mut url = url.to_string();
         let mut method = reqwest::Method::from_bytes(method.as_bytes()).unwrap();
@@ -537,7 +521,6 @@ async fn logging_in_and_reaching_the_app() {
         StatusCode::OK
     );
 
-    // PKCE really happened.
     let seen = s.provider.seen.lock().unwrap();
     assert!(!seen.verifier.is_empty());
     assert_eq!(challenge_for(&seen.verifier), seen.challenge);
@@ -693,7 +676,6 @@ async fn callbacks_that_should_not_work_do_not() {
         )
     );
 
-    // Started by one browser, finished by another.
     let starter = Browser::new();
     starter
         .go_until("GET", &format!("{}/auth/login", s.url), |u| {
@@ -712,7 +694,6 @@ async fn callbacks_that_should_not_work_do_not() {
         StatusCode::UNAUTHORIZED
     );
 
-    // Replayed by the same browser after it was used.
     assert_eq!(
         starter.go("GET", &callback).await.status,
         StatusCode::OK,
@@ -739,13 +720,11 @@ async fn sessions_lapse_slide_and_end() {
         .unwrap();
     let before = s.store.session(&id, 0).unwrap().unwrap().expires;
 
-    // Within the hour: not written again.
     s.clock.advance(60);
     let r = b.go("GET", &format!("{}/api/status", s.url)).await;
     assert!(r.set_cookies.is_empty());
     assert_eq!(s.store.session(&id, 0).unwrap().unwrap().expires, before);
 
-    // A day later: extended, and the cookie re-issued.
     s.clock.advance(24 * 3600);
     let r = b.go("GET", &format!("{}/api/status", s.url)).await;
     assert_eq!(r.status, StatusCode::OK);
@@ -756,7 +735,6 @@ async fn sessions_lapse_slide_and_end() {
     );
     assert!(s.store.session(&id, 0).unwrap().unwrap().expires > before);
 
-    // A year later: lapsed.
     s.clock.advance(365 * 24 * 3600);
     assert_eq!(
         b.go("GET", &format!("{}/api/status", s.url)).await.status,
@@ -826,7 +804,10 @@ async fn a_post_from_another_origin_is_refused_but_the_public_one_is_trusted() {
         .join("; ");
     let post = |origin: &str, site: &str| {
         b.http
-            .post(format!("{}/api/settings/camera-storage?value=512", s.url))
+            .post(format!(
+                "{}/api/settings/timelapse-storage?value=512",
+                s.url
+            ))
             .header("cookie", cookie.clone())
             .header("origin", origin.to_string())
             .header("sec-fetch-site", site.to_string())

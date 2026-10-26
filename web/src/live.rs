@@ -40,11 +40,7 @@ fn receive(mut state: State, msg: Message) {
                 state.status.set(Some(*status));
                 state.reachable.set(true);
             }
-            Ok(api::ServerMessage::Range(range)) => {
-                camera::follow_range(state, range);
-                state.range.set(range);
-            }
-            Ok(api::ServerMessage::Jobs { jobs }) => state.jobs.set(jobs),
+            Ok(api::ServerMessage::Timelapses { timelapses }) => state.timelapses.set(timelapses),
             Err(_) => {}
         },
     }

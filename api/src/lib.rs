@@ -1,10 +1,11 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-pub const FRAME_TIMESTAMP: &str = "X-Frame-Timestamp";
+pub const FRAME_COUNT: &str = "X-Frame-Count";
+pub const FRAME_INTERVAL: &str = "X-Frame-Interval";
 
 pub mod settings {
-    pub const CAMERA_STORAGE: &str = "camera-storage";
+    pub const TIMELAPSE_STORAGE: &str = "timelapse-storage";
     pub const BED_OFF_AFTER: &str = "bed-off-after";
     pub const NOZZLE_OFF_AFTER: &str = "nozzle-off-after";
     pub const LAMP_OFF_AFTER: &str = "lamp-off-after";
@@ -18,8 +19,7 @@ pub mod settings {
 pub enum ServerMessage {
     Printers { printers: Vec<PrinterSummary> },
     Status(Box<Status>),
-    Range(Range),
-    Jobs { jobs: Vec<Job> },
+    Timelapses { timelapses: Vec<Timelapse> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,20 +92,11 @@ pub struct PrinterSummary {
     pub progress: Value,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Range {
-    pub oldest: Option<i64>,
-    pub newest: Option<i64>,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Job {
-    pub id: i64,
+pub struct Timelapse {
     pub name: String,
-    pub start: i64,
-    pub end: Option<i64>,
+    pub bytes: i64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -137,7 +128,7 @@ pub struct Created {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Settings {
-    pub camera_storage: i64,
+    pub timelapse_storage: i64,
     pub bed_off_after: i64,
     pub nozzle_off_after: i64,
     pub lamp_off_after: i64,

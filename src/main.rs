@@ -1,27 +1,21 @@
-//! bambuspa serves a phone-friendly control page for Bambu P1S printers on the
-//! local network: bed actions and live status over each printer's MQTT
-//! interface, and its chamber camera, recorded continuously into a rolling
-//! history buffer.
-
 mod activity;
 mod auth;
+mod avi;
 mod camera;
-mod capacity;
 mod clock;
 mod core;
 mod db;
-mod history;
 mod p1s;
 mod printers;
 mod push;
 mod settings;
 #[cfg(test)]
 mod testing;
+mod timelapses;
 mod timers;
 mod web;
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
@@ -30,8 +24,6 @@ use crate::clock::Clock;
 use crate::p1s::Ports;
 use crate::printers::Printers;
 
-/// 32 random bytes as unpadded base64url: long enough that guessing one is not
-/// worth attempting.
 pub fn random_token() -> String {
     use base64::Engine;
     let mut raw = [0u8; 32];
@@ -39,21 +31,15 @@ pub fn random_token() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw)
 }
 
-/// The database file inside DATA_DIR.
 const DB_FILE: &str = "bambuspa.sqlite";
 
-/// How often the camera footage is held to its size.
 const HOUSEKEEPING_EVERY: Duration = Duration::from_secs(5 * 60);
 
-/// The assembled program — everything below `main` — so it can be started
-/// without a process around it.
 pub struct Started {
     pub router: Router,
     pub printers: Printers,
 }
 
-/// Opens the database under `data_dir`, wires everything to it and starts the
-/// background tasks.
 pub async fn start(
     data_dir: &Path,
     decision: auth::Decision,
@@ -65,8 +51,6 @@ pub async fn start(
     let db = db::Db::open(data_dir.join(DB_FILE)).map_err(|e| format!("open database: {e}"))?;
     let settings =
         settings::Settings::new(db.clone()).map_err(|e| format!("open settings: {e}"))?;
-    // The log reads its budget on every entry, so a change on the settings
-    // page takes hold without a restart.
     let limits = settings.clone();
     let events = activity::Log::new(
         db.clone(),
@@ -74,7 +58,6 @@ pub async fn start(
         clock.clone(),
     )
     .map_err(|e| format!("open event log: {e}"))?;
-    let store = history::Store::new(db.clone());
     let sender = push::Sender::new(db.clone(), events.clone(), clock.clone())
         .map_err(|e| format!("load notification identity: {e}"))?;
     let timers =
@@ -97,14 +80,11 @@ pub async fn start(
         }
     };
 
-    // Whatever printers were set up last time. With none, the app still
-    // serves the page — that is where one is added.
     let printers = Printers::load(printers::Deps {
         db: db.clone(),
         settings: settings.clone(),
         log: events.clone(),
         sender: sender.clone(),
-        store: store.clone(),
         timers,
         clock: clock.clone(),
         ports,
@@ -122,7 +102,7 @@ pub async fn start(
     };
 
     tokio::spawn(logins.run_sweeper(clock.clone()));
-    tokio::spawn(housekeeping(db, store, settings, printers.clone()));
+    tokio::spawn(housekeeping(db));
 
     let mut router = web::router(app);
     if let Some(auth) = &authenticator {
@@ -135,38 +115,16 @@ pub async fn start(
     Ok(Started { router, printers })
 }
 
-/// Holds the camera footage to its size, oldest first, every few minutes,
-/// forever.
-async fn housekeeping(
-    db: db::Db,
-    store: history::Store,
-    settings: settings::Settings,
-    printers: Printers,
-) {
-    let limits = settings.clone();
-    let enforcer = Arc::new(capacity::Enforcer::new(
-        db,
-        move || limits.values().camera_storage,
-        vec![Box::new(store.clone())],
-    ));
+async fn housekeeping(db: db::Db) {
     let mut tick = tokio::time::interval(HOUSEKEEPING_EVERY);
-    tick.tick().await;
     loop {
         tick.tick().await;
-        let (store, enforcer) = (store.clone(), enforcer.clone());
-        let done = tokio::task::spawn_blocking(move || {
-            if let Err(err) = enforcer.once() {
-                tracing::warn!("capacity: {err}");
-            }
-            if let Err(err) = store.forget_unrecorded_jobs() {
-                tracing::warn!("history: forgetting jobs: {err}");
-            }
-        })
-        .await;
-        if let Err(err) = done {
-            tracing::warn!("housekeeping: {err}");
+        let db = db.clone();
+        match tokio::task::spawn_blocking(move || db.reclaim()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => tracing::warn!("housekeeping: returning freed space: {err}"),
+            Err(err) => tracing::warn!("housekeeping: {err}"),
         }
-        printers.jobs_changed();
     }
 }
 
@@ -177,14 +135,12 @@ async fn main() {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,rumqttc=warn")),
         )
-        // Colour only for a person at a terminal, not in a container's log.
         .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stdout()))
         .init();
     let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
     let addr = env("LISTEN_ADDR").unwrap_or_else(|| ":8081".into());
     let data_dir = env("DATA_DIR").unwrap_or_else(|| "./data".into());
 
-    // Refuse to start unless authentication was explicitly configured.
     let decision = auth::decide(env).unwrap_or_else(|err| fatal(&err));
     if decision == auth::Decision::Disabled {
         tracing::warn!(
@@ -201,7 +157,6 @@ async fn main() {
     .await
     .unwrap_or_else(|e| fatal(&e));
 
-    // ":8081" means every interface, as it does to Go.
     let bind = if addr.starts_with(':') {
         format!("0.0.0.0{addr}")
     } else {
@@ -214,8 +169,6 @@ async fn main() {
         "bambuspa listening on {addr} ({})",
         started.printers.describe()
     );
-    // Open pages hold websockets, which would keep a graceful shutdown waiting
-    // forever, so it gets a few seconds.
     let (stopping, stop) = tokio::sync::watch::channel(false);
     tokio::spawn(async move {
         shutdown_signal().await;

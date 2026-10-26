@@ -4,21 +4,23 @@ use gloo_timers::future::TimeoutFuture;
 
 use crate::{State, api, http, icons, js, send_live};
 
-const TICK_MS: u32 = 250;
-const SPEEDS: [i64; 4] = [30, 60, 300, 600];
+#[derive(Clone, PartialEq)]
+struct Video {
+    name: String,
+    frames: usize,
+    interval_ms: u32,
+}
 
 #[derive(Clone, Copy)]
 pub struct Camera {
     following: Signal<bool>,
     image: Signal<Option<String>>,
     caption: Signal<String>,
-    pos: Signal<f64>,
     seq: Signal<u64>,
+    video: Signal<Option<Video>>,
+    pos: Signal<usize>,
     playing: Signal<bool>,
     player: Signal<Option<Task>>,
-    bound_end: Signal<Option<i64>>,
-    job_span: Signal<Option<(i64, i64)>>,
-    speed: Signal<i64>,
 }
 
 impl Camera {
@@ -27,13 +29,11 @@ impl Camera {
             following: Signal::new(true),
             image: Signal::new(None),
             caption: Signal::new("…".to_string()),
-            pos: Signal::new(0.0),
             seq: Signal::new(0),
+            video: Signal::new(None),
+            pos: Signal::new(0),
             playing: Signal::new(false),
             player: Signal::new(None),
-            bound_end: Signal::new(None),
-            job_span: Signal::new(None),
-            speed: Signal::new(60),
         }
     }
 
@@ -70,52 +70,55 @@ pub fn show_live_frame(state: State, ts: i64, jpeg: &[u8]) {
     if let Some(url) = object_url(jpeg) {
         set_image(camera, url);
     }
-    camera.pos.set(ts as f64);
     camera.caption.set(js::cam_time(ts as f64, true));
 }
 
-pub fn follow_range(state: State, range: api::Range) {
-    let mut camera = state.camera;
-    if let (true, Some(newest)) = (camera.following(), range.newest) {
-        camera.pos.set(newest as f64);
+fn recorded(name: &str) -> String {
+    let stem = name.trim_start_matches("video_").trim_end_matches(".avi");
+    match stem.split_once('_') {
+        Some((day, time)) => format!("{day} {}", time.replace('-', ":").get(..5).unwrap_or("")),
+        None => stem.to_string(),
     }
 }
 
-fn show_frame(state: State, ts: f64) {
-    let mut camera = state.camera;
-    let seq = next_seq(camera);
-    let url = state.with_printer(&format!("/camera/history/frame?ts={}", ts.floor() as i64));
-    spawn(async move {
-        let Ok(response) = http::get(&url).await else {
-            return;
-        };
-        if !response.ok() {
-            return;
-        }
-        let taken = response
-            .headers()
-            .get(api::FRAME_TIMESTAMP)
-            .and_then(|t| t.parse::<f64>().ok())
-            .unwrap_or(0.0);
-        let Ok(jpeg) = response.binary().await else {
-            return;
-        };
-        if *camera.seq.peek() != seq {
-            return;
-        }
-        if let Some(url) = object_url(&jpeg) {
-            set_image(camera, url);
-        }
-        camera
-            .caption
-            .set(js::cam_time(if taken > 0.0 { taken } else { ts }, true));
-    });
+fn timelapse_url(state: State, what: &str, name: &str) -> String {
+    state.with_printer(&format!("/api/timelapses/{what}?name={}", js::encode(name)))
 }
 
-fn seek(state: State, ts: f64) {
-    let mut pos = state.camera.pos;
-    pos.set(ts);
-    show_frame(state, ts);
+async fn show_frame(state: State, name: &str, i: usize) -> Option<(usize, u32)> {
+    let mut camera = state.camera;
+    let seq = next_seq(camera);
+    let response = http::get(&format!("{}&i={i}", timelapse_url(state, "frame", name)))
+        .await
+        .ok()?;
+    if !response.ok() {
+        let reason = response.text().await.unwrap_or_default();
+        if *camera.seq.peek() == seq {
+            camera
+                .caption
+                .set(format!("Couldn't play it: {}", reason.trim()));
+        }
+        return None;
+    }
+    let header = |h: &str| {
+        response
+            .headers()
+            .get(h)
+            .and_then(|v| v.parse::<u32>().ok())
+    };
+    let frames = header(api::FRAME_COUNT)? as usize;
+    let interval_us = header(api::FRAME_INTERVAL)?;
+    let jpeg = response.binary().await.ok()?;
+    if *camera.seq.peek() != seq {
+        return None;
+    }
+    if let Some(url) = object_url(&jpeg) {
+        set_image(camera, url);
+    }
+    camera
+        .caption
+        .set(format!("{} · {} of {frames}", recorded(name), i + 1));
+    Some((frames, interval_us / 1000))
 }
 
 fn set_following(mut camera: Camera, on: bool) {
@@ -134,74 +137,71 @@ fn stop_playback(mut camera: Camera) {
 
 fn start_playback(state: State) {
     let mut camera = state.camera;
-    let Some(cap) = camera.bound_end.peek().or(state.range.peek().newest) else {
+    let Some(video) = camera.video.peek().clone() else {
         return;
     };
-    set_following(camera, false);
     camera.playing.set(true);
-    let step = *camera.speed.peek() as f64 * (TICK_MS as f64 / 1000.0);
-    let cap = cap as f64;
     let task = spawn(async move {
         loop {
-            TimeoutFuture::new(TICK_MS).await;
-            let pos = *camera.pos.peek();
-            if pos + step >= cap {
-                seek(state, cap);
-                camera.playing.set(false);
-                camera.player.set(None);
-                return;
+            let mut next = *camera.pos.peek() + 1;
+            if next >= video.frames {
+                next = 0;
             }
-            seek(state, pos + step);
+            let started = js_sys::Date::now();
+            if show_frame(state, &video.name, next).await.is_none() {
+                break;
+            }
+            camera.pos.set(next);
+            if next + 1 >= video.frames {
+                break;
+            }
+            let spent = (js_sys::Date::now() - started) as u32;
+            TimeoutFuture::new(video.interval_ms.saturating_sub(spent)).await;
         }
+        camera.playing.set(false);
+        camera.player.set(None);
     });
     camera.player.set(Some(task));
 }
 
-fn clear_job(mut camera: Camera) {
+fn open(state: State, name: String) {
+    let mut camera = state.camera;
     stop_playback(camera);
-    camera.job_span.set(None);
-    camera.bound_end.set(None);
+    set_following(camera, false);
+    camera.video.set(None);
+    camera.pos.set(0);
+    camera.caption.set(format!("{} · loading", recorded(&name)));
+    spawn(async move {
+        let Some((frames, interval_ms)) = show_frame(state, &name, 0).await else {
+            return;
+        };
+        camera.video.set(Some(Video {
+            name,
+            frames,
+            interval_ms,
+        }));
+        start_playback(state);
+    });
 }
 
 pub fn go_live(state: State) {
-    clear_job(state.camera);
-    set_following(state.camera, true);
-}
-
-fn jump_to_live(state: State) {
-    go_live(state);
-    if let Some(newest) = state.range.peek().newest {
-        seek(state, newest as f64);
-    }
+    let mut camera = state.camera;
+    stop_playback(camera);
+    camera.video.set(None);
+    set_following(camera, true);
 }
 
 fn scrub(state: State, value: String) {
-    set_following(state.camera, false);
-    stop_playback(state.camera);
-    let ts = value.parse().unwrap_or(0.0);
-    seek(state, ts);
-}
-
-fn change_speed(state: State, value: String) {
     let mut camera = state.camera;
-    camera.speed.set(value.parse().unwrap_or(60));
-    if *camera.playing.peek() {
-        stop_playback(camera);
-        start_playback(state);
-    }
-}
-
-fn play_job(state: State, job: &api::Job) {
-    let mut camera = state.camera;
-    let Some(end) = job.end.or(state.range.peek().newest) else {
+    stop_playback(camera);
+    let Some(video) = camera.video.peek().clone() else {
         return;
     };
-    stop_playback(camera);
-    set_following(camera, false);
-    camera.bound_end.set(Some(end));
-    camera.job_span.set(Some((job.start, end)));
-    seek(state, job.start as f64);
-    start_playback(state);
+    let i = value.parse::<usize>().unwrap_or(0).min(video.frames - 1);
+    camera.pos.set(i);
+    spawn(async move {
+        show_frame(state, &video.name, i).await;
+    });
 }
 
 #[component]
@@ -209,74 +209,72 @@ pub fn CameraCard() -> Element {
     let state = use_context::<State>();
     let camera = state.camera;
     use_drop(move || stop_playback(camera));
-    let range = state.range.cloned();
-    let (Some(oldest), Some(newest)) = (range.oldest, range.newest) else {
-        return rsx! {
-            div { class: "card", id: "camCard",
-                div { id: "camEmpty", style: "color:var(--muted)", "No recordings yet" }
-            }
-        };
-    };
-    let (min, max) = camera.job_span.cloned().unwrap_or((oldest, newest));
     let following = camera.following.cloned();
     let playing = camera.playing.cloned();
-    let pos = camera.pos.cloned().floor() as i64;
     let image = camera.image.cloned();
     let caption = camera.caption.cloned();
-    let speed = camera.speed.cloned();
-    let jobs = state.jobs.cloned();
+    let video = camera.video.cloned();
+    let has_video = video.is_some();
+    let pos = camera.pos.cloned();
+    let timelapses = state.timelapses.cloned();
     rsx! {
         div { class: "card", id: "camCard",
             div { id: "camControls",
                 div { class: "cam-frame",
-                    img { id: "camImg", alt: "printer camera", src: image }
+                    if image.is_some() {
+                        img { id: "camImg", alt: "printer camera", src: image }
+                    } else {
+                        div { id: "camEmpty", style: "color:var(--muted)", "Waiting for the camera" }
+                    }
                     button {
                         class: if following { "cam-live on" } else { "cam-live" },
                         id: "camLiveBtn",
-                        "aria-label": if following { "Live view" } else { "Jump to live view" },
-                        onclick: move |_| jump_to_live(state),
+                        "aria-label": if following { "Live view" } else { "Back to the live view" },
+                        onclick: move |_| go_live(state),
                         span { class: "dot" }
                         "LIVE"
                     }
                 }
-                input {
-                    r#type: "range",
-                    id: "camSlider",
-                    min: "{min}",
-                    max: "{max}",
-                    step: "1",
-                    value: "{pos}",
-                    oninput: move |e: FormEvent| scrub(state, e.value()),
+                if let Some(video) = video {
+                    input {
+                        r#type: "range",
+                        id: "camSlider",
+                        min: "0",
+                        max: "{video.frames - 1}",
+                        step: "1",
+                        value: "{pos}",
+                        oninput: move |e: FormEvent| scrub(state, e.value()),
+                    }
                 }
                 div { class: "row",
                     span { id: "camTime", "{caption}" }
-                    span { class: "camctls",
-                        button {
-                            class: "camctl",
-                            id: "camPlayBtn",
-                            "aria-label": if playing { "Pause timelapse" } else { "Play timelapse" },
-                            dangerous_inner_html: if playing { icons::PAUSE } else { icons::PLAY },
-                            onclick: move |_| {
-                                if *camera.playing.peek() {
-                                    stop_playback(camera);
-                                } else {
-                                    start_playback(state);
-                                }
-                            },
-                        }
-                        select {
-                            id: "camSpeedSelect",
-                            onchange: move |e: FormEvent| change_speed(state, e.value()),
-                            for s in SPEEDS {
-                                option { key: "{s}", value: "{s}", selected: s == speed, "{s}x" }
+                    if has_video {
+                        span { class: "camctls",
+                            button {
+                                class: "camctl",
+                                id: "camPlayBtn",
+                                "aria-label": if playing { "Pause timelapse" } else { "Play timelapse" },
+                                dangerous_inner_html: if playing { icons::PAUSE } else { icons::PLAY },
+                                onclick: move |_| {
+                                    if *camera.playing.peek() {
+                                        stop_playback(camera);
+                                    } else {
+                                        start_playback(state);
+                                    }
+                                },
                             }
                         }
                     }
                 }
-                h2 { style: "margin-top:14px", "Recent jobs" }
-                div { id: "camJobs",
-                    for job in jobs {
-                        JobRow { key: "{job.id}", job: job.clone() }
+                h2 { style: "margin-top:14px", "Timelapses on the SD card" }
+                div { id: "camTimelapses",
+                    if timelapses.is_empty() {
+                        div { style: "color:var(--muted)",
+                            "None yet. Turn on timelapse in Bambu Studio when you send a print."
+                        }
+                    }
+                    for timelapse in timelapses {
+                        TimelapseRow { key: "{timelapse.name}", timelapse: timelapse.clone() }
                     }
                 }
             }
@@ -285,29 +283,22 @@ pub fn CameraCard() -> Element {
 }
 
 #[component]
-fn JobRow(job: api::Job) -> Element {
+fn TimelapseRow(timelapse: api::Timelapse) -> Element {
     let state = use_context::<State>();
-    let name = if job.name.is_empty() {
-        "(unnamed job)".to_string()
-    } else {
-        job.name.clone()
-    };
-    let when = js::cam_time(job.start as f64, false);
-    let label = if job.end.is_some() {
-        "Timelapse"
-    } else {
-        "Watch job so far"
-    };
+    let thumbnail = timelapse_url(state, "thumbnail", &timelapse.name);
+    let size = format!("{:.1} MB", timelapse.bytes as f64 / (1 << 20) as f64);
+    let name = timelapse.name.clone();
     rsx! {
-        div { class: "row",
-            span {
-                "{name}"
-                span { class: "cam-job-time", "{when}" }
+        div { class: "row tl-row",
+            img { class: "tl-thumb", alt: "", loading: "lazy", src: "{thumbnail}" }
+            span { class: "tl-name",
+                "{recorded(&timelapse.name)}"
+                span { class: "cam-job-time", "{size}" }
             }
             button {
                 style: "padding:6px 14px; font-size:0.8rem; border-radius:8px",
-                onclick: move |_| play_job(state, &job),
-                "{label}"
+                onclick: move |_| open(state, name.clone()),
+                "Play"
             }
         }
     }

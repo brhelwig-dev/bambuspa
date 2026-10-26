@@ -1,12 +1,3 @@
-//! Runs two pretend P1Ss, so the app can be run and looked at without a
-//! printer: one on 127.0.0.1:8883 (MQTT) and :6000 (camera), part-way through
-//! a print, and an idle one on 127.0.0.2 at the same ports.
-//!
-//!     cargo run --example fake_printer
-//!
-//! Then add them on the app's Settings screen: 127.0.0.1, serial FAKE0001,
-//! access code 12345678; and 127.0.0.2, serial FAKE0002, access code 87654321.
-
 #[allow(dead_code)]
 #[path = "../src/testing/printer.rs"]
 mod printer;
@@ -16,7 +7,17 @@ use serde_json::json;
 #[tokio::main]
 async fn main() {
     let printer =
-        printer::FakePrinter::start("127.0.0.1", 8883, 6000, "FAKE0001", "12345678").await;
+        printer::FakePrinter::start("127.0.0.1", 8883, 6000, 990, "FAKE0001", "12345678").await;
+    for name in ["video_2026-07-22_00-10-12", "video_2026-07-23_08-45-39"] {
+        printer.put_file(
+            &format!("/timelapse/{name}.avi"),
+            printer::avi(&[printer::PIXEL_JPEG; 48], 41_666),
+        );
+        printer.put_file(
+            &format!("/timelapse/thumbnail/{name}.jpg"),
+            printer::PIXEL_JPEG.to_vec(),
+        );
+    }
     printer.set_state(json!({
         "gcode_state": "RUNNING",
         "subtask_name": "Benchy",
@@ -49,10 +50,11 @@ async fn main() {
         }
     }));
     println!(
-        "fake printer on 127.0.0.1: mqtt {} camera {}, serial FAKE0001, access code 12345678",
-        printer.mqtt_port, printer.camera_port
+        "fake printer on 127.0.0.1: mqtt {} camera {} ftp {}, serial FAKE0001, access code 12345678",
+        printer.mqtt_port, printer.camera_port, printer.ftp_port
     );
-    let idle = printer::FakePrinter::start("127.0.0.2", 8883, 6000, "FAKE0002", "87654321").await;
+    let idle =
+        printer::FakePrinter::start("127.0.0.2", 8883, 6000, 990, "FAKE0002", "87654321").await;
     idle.set_state(json!({
         "gcode_state": "IDLE",
         "bed_temper": 23.1,
@@ -65,7 +67,6 @@ async fn main() {
     println!("fake printer on 127.0.0.2: same ports, serial FAKE0002, access code 87654321");
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        // A little life, so live updates have something to show.
         printer.report(
             json!({"bed_temper": 59.5 + rand_tenth(), "nozzle_temper": 219.5 + rand_tenth()}),
         );

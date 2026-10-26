@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,7 +11,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::sign::{CertifiedKey, SingleCertAndKey};
 use serde_json::{Value, json};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio_rustls::TlsAcceptor;
@@ -26,6 +27,32 @@ pub const PIXEL_JPEG: &[u8] = &[
     0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x2A, 0x9F, 0xFF, 0xD9,
 ];
+
+pub fn avi(frames: &[&[u8]], interval_us: u32) -> Vec<u8> {
+    fn chunk(id: &[u8], body: &[u8]) -> Vec<u8> {
+        let mut out = id.to_vec();
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(body);
+        if body.len() % 2 == 1 {
+            out.push(0);
+        }
+        out
+    }
+    let mut avih = interval_us.to_le_bytes().to_vec();
+    avih.resize(56, 0);
+    let hdrl = [b"hdrl".to_vec(), chunk(b"avih", &avih)].concat();
+    let mut movi = b"movi".to_vec();
+    for frame in frames {
+        movi.extend(chunk(b"00dc", frame));
+    }
+    let body = [
+        b"AVI ".to_vec(),
+        chunk(b"LIST", &hdrl),
+        chunk(b"LIST", &movi),
+    ]
+    .concat();
+    chunk(b"RIFF", &body)
+}
 
 pub fn acceptor() -> TlsAcceptor {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -45,8 +72,10 @@ pub fn acceptor() -> TlsAcceptor {
 pub struct FakePrinter {
     pub mqtt_port: u16,
     pub camera_port: u16,
+    pub ftp_port: u16,
     pub serial: String,
     requests: Arc<Mutex<Vec<String>>>,
+    files: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
     state: Arc<Mutex<Value>>,
     reports: broadcast::Sender<Value>,
 }
@@ -56,6 +85,7 @@ impl FakePrinter {
         host: &str,
         mqtt_port: u16,
         camera_port: u16,
+        ftp_port: u16,
         serial: &str,
         access_code: &str,
     ) -> FakePrinter {
@@ -65,15 +95,36 @@ impl FakePrinter {
         let camera = TcpListener::bind((host, camera_port))
             .await
             .expect("bind camera");
+        let ftp = TcpListener::bind((host, ftp_port))
+            .await
+            .expect("bind ftp (on Linux, port 990 needs net.ipv4.ip_unprivileged_port_start=990)");
         let printer = FakePrinter {
             mqtt_port: mqtt.local_addr().unwrap().port(),
             camera_port: camera.local_addr().unwrap().port(),
+            ftp_port: ftp.local_addr().unwrap().port(),
             serial: serial.into(),
             requests: Arc::default(),
+            files: Arc::default(),
             state: Arc::new(Mutex::new(json!({"gcode_state": "IDLE"}))),
             reports: broadcast::Sender::new(64),
         };
         let tls = acceptor();
+        let (p, t, code, h) = (
+            printer.clone(),
+            tls.clone(),
+            access_code.to_string(),
+            host.to_string(),
+        );
+        tokio::spawn(async move {
+            while let Ok((tcp, _)) = ftp.accept().await {
+                let (p, t, code, h) = (p.clone(), t.clone(), code.clone(), h.clone());
+                tokio::spawn(async move {
+                    if let Ok(conn) = t.accept(tcp).await {
+                        let _ = p.serve_ftp(conn, t, &h, &code).await;
+                    }
+                });
+            }
+        });
         let (p, t, code) = (printer.clone(), tls.clone(), access_code.to_string());
         tokio::spawn(async move {
             while let Ok((tcp, _)) = mqtt.accept().await {
@@ -124,6 +175,114 @@ impl FakePrinter {
             }
         }
         let _ = self.reports.send(json!({"print": fields}));
+    }
+
+    pub fn put_file(&self, path: &str, body: Vec<u8>) {
+        self.files.lock().unwrap().insert(path.to_string(), body);
+    }
+
+    pub fn files(&self) -> Vec<String> {
+        self.files.lock().unwrap().keys().cloned().collect()
+    }
+
+    fn listing(&self, dir: &str) -> Vec<u8> {
+        let prefix = format!("{}/", dir.trim_end_matches('/'));
+        let mut lines = std::collections::BTreeSet::new();
+        for (path, body) in self.files.lock().unwrap().iter() {
+            let Some(rest) = path.strip_prefix(&prefix) else {
+                continue;
+            };
+            lines.insert(match rest.split_once('/') {
+                Some((sub, _)) => {
+                    format!("drwxrwxrwx   1 root  root          0 Jul 23 10:49 {sub}\r\n")
+                }
+                None => format!(
+                    "-rw-rw-rw-   1 root  root   {:>8} Jul 23 10:49 {rest}\r\n",
+                    body.len()
+                ),
+            });
+        }
+        lines.into_iter().collect::<String>().into_bytes()
+    }
+
+    async fn serve_ftp<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+        &self,
+        conn: S,
+        tls: TlsAcceptor,
+        host: &str,
+        code: &str,
+    ) -> std::io::Result<()> {
+        let (r, mut w) = tokio::io::split(conn);
+        let mut lines = BufReader::new(r).lines();
+        w.write_all(b"220 BBL-P003 FTP Server\r\n").await?;
+        let (mut user, mut authed, mut passive) = (false, false, None);
+        while let Some(line) = lines.next_line().await? {
+            let (cmd, arg) = line.split_once(' ').unwrap_or((&line, ""));
+            let reply = match cmd {
+                "USER" => {
+                    user = arg == "bblp";
+                    "331 Password required".to_string()
+                }
+                "PASS" => {
+                    authed = user && arg == code;
+                    if authed {
+                        "230 User logged in"
+                    } else {
+                        "530 Login incorrect"
+                    }
+                    .to_string()
+                }
+                "QUIT" => {
+                    w.write_all(b"221 Goodbye\r\n").await?;
+                    return Ok(());
+                }
+                _ if !authed => "530 Not logged in".to_string(),
+                "PBSZ" | "PROT" | "TYPE" => "200 OK".to_string(),
+                "PASV" => {
+                    let listener = TcpListener::bind((host, 0)).await?;
+                    let port = listener.local_addr()?.port();
+                    passive = Some(listener);
+                    format!(
+                        "227 Entering Passive Mode (127,0,0,1,{},{})",
+                        port >> 8,
+                        port & 255
+                    )
+                }
+                "LIST" | "RETR" => {
+                    let Some(listener) = passive.take() else {
+                        w.write_all(b"425 Use PASV first\r\n").await?;
+                        continue;
+                    };
+                    let body = if cmd == "LIST" {
+                        Some(self.listing(arg))
+                    } else {
+                        self.files.lock().unwrap().get(arg).cloned()
+                    };
+                    let Some(body) = body else {
+                        w.write_all(b"550 No such file\r\n").await?;
+                        continue;
+                    };
+                    w.write_all(b"150 Opening data connection\r\n").await?;
+                    let (tcp, _) = listener.accept().await?;
+                    let mut data = tls.accept(tcp).await?;
+                    if data.get_ref().1.handshake_kind() != Some(rustls::HandshakeKind::Resumed) {
+                        w.write_all(b"425 Data connection must reuse the TLS session\r\n")
+                            .await?;
+                        continue;
+                    }
+                    data.write_all(&body).await?;
+                    data.shutdown().await?;
+                    "226 Transfer complete".to_string()
+                }
+                "DELE" => match self.files.lock().unwrap().remove(arg) {
+                    Some(_) => "250 Deleted".to_string(),
+                    None => "550 No such file".to_string(),
+                },
+                _ => "502 ".to_string(),
+            };
+            w.write_all(format!("{reply}\r\n").as_bytes()).await?;
+        }
+        Ok(())
     }
 
     pub fn requests(&self) -> Vec<String> {

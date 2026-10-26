@@ -211,6 +211,9 @@ select { border: 0; border-radius: 8px; padding: 8px; font-size: 0.9rem; backgro
 .camctl { padding: 8px 12px; display: inline-flex; }
 .camctl svg { width: 18px; height: 18px; display: block; }
 .cam-job-time { display: block; color: var(--muted); font-size: 0.75rem; }
+.tl-row { align-items: center; padding: 6px 0; }
+.tl-thumb { width: 64px; height: 36px; object-fit: cover; border-radius: 6px; background: var(--muted); }
+.tl-name { flex: 1; margin: 0 10px; }
 .cam-frame { position: relative; }
 .cam-live {
   position: absolute; top: 10px; right: 10px;
