@@ -55,6 +55,12 @@ pub fn encode(text: &str) -> String {
     js_sys::encode_uri_component(text).into()
 }
 
+pub fn decode(text: &str) -> String {
+    js_sys::decode_uri_component(text)
+        .map(String::from)
+        .unwrap_or_else(|_| text.to_string())
+}
+
 pub fn fixed1(v: &Value) -> String {
     match v.as_f64() {
         Some(n) => js_sys::Number::from(n)

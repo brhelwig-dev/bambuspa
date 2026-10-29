@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use bambuspa_api::Timelapse;
+use bambuspa_api::{Timelapse, TimelapseDownload};
 use tokio::sync::{Mutex, watch};
+use tokio::task::AbortHandle;
 
 use crate::avi::Video;
 use crate::p1s::Link;
@@ -14,6 +15,7 @@ const EVERY: Duration = Duration::from_secs(5 * 60);
 const MAX_VIDEO: u64 = 256 << 20;
 const MAX_THUMBNAIL: u64 = 4 << 20;
 const LOW_WATER: f64 = 0.9;
+const KEEP_DOWNLOADS: usize = 2;
 
 pub enum Error {
     NotFound,
@@ -34,7 +36,30 @@ struct Inner {
     settings: Settings,
     session: Mutex<()>,
     list: watch::Sender<Vec<Timelapse>>,
-    playing: Mutex<Option<(String, Arc<Video>)>>,
+    downloads: std::sync::Mutex<Vec<Download>>,
+}
+
+#[derive(Clone)]
+enum Fetch {
+    Copying(u64),
+    Ready(Arc<Video>),
+    Failed(String),
+}
+
+/// A timelapse being copied, or copied, into a temporary file. The file has
+/// no name on disk and the OS removes it once it is closed, which is when the
+/// download is dropped (or the process exits).
+struct Download {
+    name: String,
+    total: u64,
+    state: watch::Receiver<Fetch>,
+    task: AbortHandle,
+}
+
+impl Drop for Download {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
 }
 
 impl Library {
@@ -44,7 +69,7 @@ impl Library {
             settings,
             session: Mutex::new(()),
             list: watch::Sender::new(Vec::new()),
-            playing: Mutex::new(None),
+            downloads: std::sync::Mutex::new(Vec::new()),
         }))
     }
 
@@ -95,27 +120,111 @@ impl Library {
         Ok(())
     }
 
-    pub async fn frame(&self, name: &str, i: usize) -> Result<(Arc<Video>, usize), Error> {
-        self.known(name)?;
-        let mut playing = self.0.playing.lock().await;
-        let video = match &*playing {
-            Some((current, video)) if current == name => video.clone(),
-            _ => {
-                *playing = None;
-                let data = self
-                    .connect()
-                    .await?
-                    .retrieve(&format!("{DIR}/{name}"), MAX_VIDEO)
-                    .await?;
-                let video = Arc::new(Video::parse(data).map_err(Error::Failed)?);
-                *playing = Some((name.to_string(), video.clone()));
-                video
+    /// Starts copying a timelapse off the SD card, unless it is already
+    /// copied or on its way.
+    pub fn download(&self, name: &str) -> Result<TimelapseDownload, Error> {
+        let total = self.known(name)?;
+        let mut downloads = self.downloads();
+        let i = match downloads.iter().position(|d| d.name == name) {
+            Some(i) if !matches!(*downloads[i].state.borrow(), Fetch::Failed(_)) => i,
+            found => {
+                if let Some(i) = found {
+                    downloads.remove(i);
+                }
+                downloads.insert(0, self.start(name, total));
+                downloads.truncate(KEEP_DOWNLOADS);
+                0
             }
         };
-        if i >= video.len() {
-            return Err(Error::NotFound);
+        Ok(report(&downloads[i]))
+    }
+
+    /// How far the download of a timelapse has got.
+    pub fn progress(&self, name: &str) -> Result<TimelapseDownload, Error> {
+        self.known(name)?;
+        let downloads = self.downloads();
+        match downloads.iter().find(|d| d.name == name) {
+            Some(d) => Ok(report(d)),
+            None => Err(Error::NotFound),
         }
-        Ok((video, i))
+    }
+
+    pub async fn frame(&self, name: &str, i: usize) -> Result<(Arc<Video>, Vec<u8>), Error> {
+        let total = self.known(name)?;
+        let mut state = {
+            let mut downloads = self.downloads();
+            match downloads.iter().find(|d| d.name == name) {
+                Some(d) => d.state.clone(),
+                None => {
+                    let d = self.start(name, total);
+                    let state = d.state.clone();
+                    downloads.insert(0, d);
+                    downloads.truncate(KEEP_DOWNLOADS);
+                    state
+                }
+            }
+        };
+        let fetched = state
+            .wait_for(|f| !matches!(f, Fetch::Copying(_)))
+            .await
+            .map_err(|_| Error::Failed("the download was cancelled".into()))?
+            .clone();
+        let video = match fetched {
+            Fetch::Ready(video) => video,
+            Fetch::Failed(err) => return Err(Error::Failed(err)),
+            Fetch::Copying(_) => unreachable!(),
+        };
+        let reading = video.clone();
+        let jpeg = tokio::task::spawn_blocking(move || reading.frame(i))
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))??;
+        match jpeg {
+            Some(jpeg) => Ok((video, jpeg)),
+            None => Err(Error::NotFound),
+        }
+    }
+
+    fn downloads(&self) -> std::sync::MutexGuard<'_, Vec<Download>> {
+        self.0.downloads.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn start(&self, name: &str, total: u64) -> Download {
+        let (tx, state) = watch::channel(Fetch::Copying(0));
+        let library = self.clone();
+        let path = format!("{DIR}/{name}");
+        let task = tokio::spawn(async move {
+            let fetched = match library.fetch(&path, &tx).await {
+                Ok(video) => Fetch::Ready(Arc::new(video)),
+                Err(err) => {
+                    tracing::warn!("timelapses: couldn't copy {path}: {err}");
+                    Fetch::Failed(err)
+                }
+            };
+            tx.send_replace(fetched);
+        });
+        Download {
+            name: name.to_string(),
+            total,
+            state,
+            task: task.abort_handle(),
+        }
+    }
+
+    async fn fetch(&self, path: &str, progress: &watch::Sender<Fetch>) -> Result<Video, String> {
+        let file = tempfile::tempfile().map_err(|e| format!("no temporary file: {e}"))?;
+        let mut file = tokio::fs::File::from_std(file);
+        self.connect()
+            .await
+            .map_err(|e| e.to_string())?
+            .retrieve_into(path, MAX_VIDEO, &mut file, |n| {
+                progress.send_replace(Fetch::Copying(n));
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        let file = file.into_std().await;
+        tokio::task::spawn_blocking(move || Video::parse(file))
+            .await
+            .map_err(|e| e.to_string())?
     }
 
     pub async fn thumbnail(&self, name: &str) -> Result<Vec<u8>, Error> {
@@ -127,11 +236,10 @@ impl Library {
             .await?)
     }
 
-    fn known(&self, name: &str) -> Result<(), Error> {
-        if self.0.list.borrow().iter().any(|t| t.name == name) {
-            Ok(())
-        } else {
-            Err(Error::NotFound)
+    fn known(&self, name: &str) -> Result<u64, Error> {
+        match self.0.list.borrow().iter().find(|t| t.name == name) {
+            Some(t) => Ok(t.bytes.max(0) as u64),
+            None => Err(Error::NotFound),
         }
     }
 
@@ -158,6 +266,28 @@ impl std::ops::Deref for Session<'_> {
 impl std::ops::DerefMut for Session<'_> {
     fn deref_mut(&mut self) -> &mut Ftp {
         &mut self.ftp
+    }
+}
+
+fn report(d: &Download) -> TimelapseDownload {
+    let total = d.total as i64;
+    match &*d.state.borrow() {
+        Fetch::Copying(n) => TimelapseDownload {
+            bytes: *n as i64,
+            total,
+            ..Default::default()
+        },
+        Fetch::Ready(_) => TimelapseDownload {
+            bytes: total,
+            total,
+            ready: true,
+            error: None,
+        },
+        Fetch::Failed(err) => TimelapseDownload {
+            total,
+            error: Some(err.clone()),
+            ..Default::default()
+        },
     }
 }
 
@@ -298,8 +428,8 @@ mod tests {
         printer.put_file(&thumbnail_of(name), b"thumb".to_vec());
         assert!(matches!(lib.frame(name, 0).await, Err(Error::NotFound)));
         lib.refresh().await.unwrap();
-        let (video, i) = lib.frame(name, 1).await.ok().unwrap();
-        assert_eq!((video.len(), video.frame(i)), (2, Some(PIXEL_JPEG)));
+        let (video, jpeg) = lib.frame(name, 1).await.ok().unwrap();
+        assert_eq!((video.len(), jpeg.as_slice()), (2, PIXEL_JPEG));
         assert!(matches!(lib.frame(name, 2).await, Err(Error::NotFound)));
         assert_eq!(lib.thumbnail(name).await.ok().unwrap(), b"thumb");
         assert!(matches!(

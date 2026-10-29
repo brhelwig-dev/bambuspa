@@ -5,6 +5,7 @@ mod http;
 mod icons;
 mod js;
 mod live;
+mod player;
 mod push;
 mod settings;
 
@@ -14,7 +15,11 @@ use dioxus::prelude::*;
 use crate::camera::Camera;
 
 fn main() {
-    dioxus::launch(App);
+    if js::query_param("timelapse").is_some() {
+        dioxus::launch(player::PlayerWindow);
+    } else {
+        dioxus::launch(App);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -88,7 +93,6 @@ pub fn select_printer(mut state: State, id: i64) {
     }
     state.current.set(Some(id));
     js::store("printer", &id.to_string());
-    camera::close_player(state);
     send_live(api::ClientMessage::Select { printer: id });
 }
 

@@ -212,17 +212,38 @@ select { border: 0; border-radius: 8px; padding: 8px; font-size: 0.9rem; backgro
 .camctl { padding: 8px 12px; display: inline-flex; }
 .camctl svg { width: 18px; height: 18px; display: block; }
 .cam-job-time { display: block; color: var(--muted); font-size: 0.75rem; }
-#camTimelapses { --tl-row: 48px; position: relative; max-height: calc(5 * var(--tl-row)); overflow-y: auto; overscroll-behavior: contain; }
-.tl-row { align-items: center; height: var(--tl-row); padding: 0; box-sizing: border-box; }
-.tl-btn { padding: 6px 14px; font-size: 0.8rem; border-radius: 8px; min-width: 58px; }
-.tl-btn.stop { background: var(--inset); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.tl-player { background: var(--inset); border-radius: 10px; padding: 8px; margin: 2px 0 8px; }
+#camTimelapses { --tl-row: 52px; }
+#camTimelapses.all { max-height: calc(6 * var(--tl-row)); overflow-y: auto; overscroll-behavior: contain; }
+.tl-none { color: var(--muted); font-size: 0.9rem; }
+.tl-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; height: var(--tl-row);
+  padding: 0 6px; margin: 0 -6px; box-sizing: content-box;
+  background: none; border-radius: 8px; text-align: left; font-weight: 400; color: var(--text); cursor: pointer;
+}
+.tl-row:hover, .tl-row:focus-visible { background: var(--inset); }
+.tl-thumb { width: 64px; height: 36px; flex: none; object-fit: cover; border-radius: 6px; background: var(--well); }
+.tl-thumb.none { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.tl-thumb.none svg { width: 18px; height: 18px; opacity: 0.6; }
+.tl-name { flex: 1; min-width: 0; font-size: 0.95rem; }
+.tl-size { display: block; color: var(--muted); font-size: 0.75rem; }
+.tl-play { display: inline-flex; color: var(--muted); }
+.tl-play svg { width: 16px; height: 16px; display: block; }
+.tl-row:hover .tl-play { color: var(--accent); }
+.tl-more { width: 100%; margin-top: 6px; padding: 8px; font-size: 0.85rem; background: none; color: var(--accent); }
+.tlwin .topbar .tl-size { display: inline; font-size: 0.85rem; }
+.tlwin .tl-player { width: min(100%, calc((100dvh - 120px) * 16 / 9)); margin: 0 auto; box-sizing: border-box; }
+.tl-player { background: var(--inset); border-radius: 10px; padding: 8px; }
 .tl-player .cam-frame { border-radius: 8px; }
 .tl-controls { display: flex; align-items: center; gap: 10px; padding-top: 6px; }
 .tl-controls input[type=range] { flex: 1; min-width: 0; margin: 0; }
 .tl-count { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; flex: none; min-width: 64px; text-align: right; }
-.tl-thumb { width: 64px; height: 36px; object-fit: cover; border-radius: 6px; background: var(--muted); }
-.tl-name { flex: 1; margin: 0 10px; }
+.tl-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; font-size: 0.9rem; }
+.tl-loading { width: min(320px, 80%); }
+.tl-loading-what { margin-bottom: 10px; }
+.tl-progress { height: 6px; border-radius: 999px; background: var(--control); overflow: hidden; }
+.tl-progress .bar { height: 100%; background: var(--accent); border-radius: inherit; transition: width 0.3s ease; }
+.tl-loading-count { margin-top: 8px; color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.tl-problem { font-size: 0.85rem; padding-top: 6px; }
 .cam-frame { position: relative; aspect-ratio: 16 / 9; max-width: 100%; border-radius: 12px; overflow: hidden; background: var(--well); }
 .cam-live {
   position: absolute; top: 10px; right: 10px;

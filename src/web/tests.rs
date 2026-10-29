@@ -753,6 +753,56 @@ async fn timelapses_on_the_sd_card_are_played_frame_by_frame() {
 }
 
 #[tokio::test]
+async fn a_timelapse_is_downloaded_with_its_progress_reported() {
+    let h = Harness::with_printer(idle()).await;
+    let video = "video_2026-01-02_03-04-05.avi";
+    let data = crate::testing::printer::avi(&[PIXEL_JPEG, PIXEL_JPEG], 41_666);
+    let total = data.len() as i64;
+    h.printer().put_file(&format!("/timelapse/{video}"), data);
+    h.app
+        .printers
+        .first()
+        .unwrap()
+        .library
+        .refresh()
+        .await
+        .unwrap();
+    let url = format!("/api/timelapses/download?name={video}");
+    assert_eq!(
+        h.get(&url).await.status,
+        StatusCode::NOT_FOUND,
+        "not started"
+    );
+
+    let started = h.request("POST", &url, "").await.json();
+    assert_eq!(started["total"], total);
+    let mut progress = started;
+    for _ in 0..100 {
+        if progress["ready"] == true {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        progress = h.get(&url).await.json();
+    }
+    assert_eq!(
+        progress,
+        json!({"bytes": total, "total": total, "ready": true, "error": null})
+    );
+    assert_eq!(
+        h.get(&format!("/api/timelapses/frame?name={video}&i=1"))
+            .await
+            .body,
+        PIXEL_JPEG
+    );
+    assert_eq!(
+        h.request("POST", "/api/timelapses/download?name=nope.avi", "")
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
 async fn a_timelapse_that_is_not_an_avi_is_reported() {
     let h = Harness::with_printer(idle()).await;
     let video = "video_2026-01-02_03-04-05.avi";

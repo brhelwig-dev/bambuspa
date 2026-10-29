@@ -99,6 +99,16 @@ pub struct Timelapse {
     pub bytes: i64,
 }
 
+/// How far the server has got copying a timelapse off the printer's SD card.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TimelapseDownload {
+    pub bytes: i64,
+    pub total: i64,
+    pub ready: bool,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PrinterInfo {
