@@ -57,6 +57,10 @@ pub fn router(app: App) -> Router {
         .route("/api/status", get(status))
         .route("/api/actions/{name}", post(actions::action))
         .route("/api/live", get(live::socket))
+        .route(
+            "/api/timelapses/download",
+            get(timelapses::progress).post(timelapses::download),
+        )
         .route("/api/timelapses/frame", get(timelapses::frame))
         .route("/api/timelapses/thumbnail", get(timelapses::thumbnail))
         .route("/api/events", get(settings::events))

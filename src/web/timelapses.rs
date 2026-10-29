@@ -3,9 +3,9 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use bambuspa_api::{FRAME_COUNT, FRAME_INTERVAL};
 
-use super::{App, Query, text};
+use super::{App, Query, json_reply, text};
 use crate::printers::Printer;
-use crate::timelapses::Error;
+use crate::timelapses::{Error, Library};
 use std::sync::Arc;
 
 fn pick(app: &App, query: &Query) -> Result<Arc<Printer>, Box<Response>> {
@@ -32,6 +32,32 @@ fn jpeg(body: Vec<u8>) -> Response {
     resp
 }
 
+pub async fn download(State(app): State<App>, query: Query) -> Response {
+    report(&app, &query, Library::download)
+}
+
+pub async fn progress(State(app): State<App>, query: Query) -> Response {
+    report(&app, &query, Library::progress)
+}
+
+fn report(
+    app: &App,
+    query: &Query,
+    step: impl Fn(&Library, &str) -> Result<bambuspa_api::TimelapseDownload, Error>,
+) -> Response {
+    let printer = match pick(app, query) {
+        Ok(p) => p,
+        Err(refusal) => return *refusal,
+    };
+    let Some(name) = query.get("name") else {
+        return text(StatusCode::BAD_REQUEST, "name is required");
+    };
+    match step(&printer.library, name) {
+        Ok(progress) => json_reply(&progress),
+        Err(err) => failed(err),
+    }
+}
+
 pub async fn frame(State(app): State<App>, query: Query) -> Response {
     let printer = match pick(&app, &query) {
         Ok(p) => p,
@@ -43,11 +69,11 @@ pub async fn frame(State(app): State<App>, query: Query) -> Response {
     ) else {
         return text(StatusCode::BAD_REQUEST, "name and i are required");
     };
-    let (video, i) = match printer.library.frame(name, i).await {
+    let (video, frame) = match printer.library.frame(name, i).await {
         Ok(found) => found,
         Err(err) => return failed(err),
     };
-    let mut resp = jpeg(video.frame(i).unwrap_or_default().to_vec());
+    let mut resp = jpeg(frame);
     let headers = resp.headers_mut();
     headers.insert(FRAME_COUNT, video.len().into());
     headers.insert(FRAME_INTERVAL, video.interval_us.into());

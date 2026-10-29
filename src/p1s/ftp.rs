@@ -1,7 +1,7 @@
 use std::io;
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
@@ -52,10 +52,38 @@ impl Ftp {
     }
 
     pub async fn retrieve(&mut self, path: &str, max: u64) -> io::Result<Vec<u8>> {
-        let mut data = self.transfer(&format!("RETR {path}")).await?;
-        let body = read_all(&mut data, max).await?;
-        self.expect(&[226, 250]).await?;
+        let mut body = Vec::new();
+        self.retrieve_into(path, max, &mut body, |_| {}).await?;
         Ok(body)
+    }
+
+    /// Copies the file at `path` into `out`, calling `progress` with the
+    /// bytes copied so far after each piece.
+    pub async fn retrieve_into<W: AsyncWrite + Unpin>(
+        &mut self,
+        path: &str,
+        max: u64,
+        out: &mut W,
+        mut progress: impl FnMut(u64),
+    ) -> io::Result<u64> {
+        let mut data = self.transfer(&format!("RETR {path}")).await?;
+        let mut buf = vec![0u8; 64 << 10];
+        let mut got = 0u64;
+        loop {
+            let n = read_some(&mut data, &mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            got += n as u64;
+            if got > max {
+                return Err(invalid(format!("longer than {max} bytes")));
+            }
+            within(out.write_all(&buf[..n])).await?;
+            progress(got);
+        }
+        within(out.flush()).await?;
+        self.expect(&[226, 250]).await?;
+        Ok(got)
     }
 
     pub async fn delete(&mut self, path: &str) -> io::Result<()> {
@@ -130,11 +158,7 @@ async fn read_all<R: AsyncRead + Unpin>(r: &mut R, max: u64) -> io::Result<Vec<u
     let mut out = Vec::new();
     let mut buf = vec![0u8; 64 << 10];
     loop {
-        let n = match within(r.read(&mut buf)).await {
-            Ok(n) => n,
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => 0,
-            Err(e) => return Err(e),
-        };
+        let n = read_some(r, &mut buf).await?;
         if n == 0 {
             return Ok(out);
         }
@@ -142,6 +166,13 @@ async fn read_all<R: AsyncRead + Unpin>(r: &mut R, max: u64) -> io::Result<Vec<u
             return Err(invalid(format!("longer than {max} bytes")));
         }
         out.extend_from_slice(&buf[..n]);
+    }
+}
+
+async fn read_some<R: AsyncRead + Unpin>(r: &mut R, buf: &mut [u8]) -> io::Result<usize> {
+    match within(r.read(buf)).await {
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => Ok(0),
+        read => read,
     }
 }
 
@@ -266,6 +297,18 @@ mod tests {
         );
         assert_eq!(ftp.retrieve("/timelapse/a.avi", 5).await.unwrap(), b"hello");
         assert!(ftp.retrieve("/timelapse/a.avi", 4).await.is_err());
+        let mut ftp = Ftp::connect("127.0.0.1", printer.ftp_port, "code")
+            .await
+            .unwrap();
+        let (mut copy, mut seen) = (Vec::new(), Vec::new());
+        let got = ftp
+            .retrieve_into("/timelapse/a.avi", 5, &mut copy, |n| seen.push(n))
+            .await
+            .unwrap();
+        assert_eq!(
+            (got, copy.as_slice(), seen.last()),
+            (5, &b"hello"[..], Some(&5))
+        );
         let mut ftp = Ftp::connect("127.0.0.1", printer.ftp_port, "code")
             .await
             .unwrap();
